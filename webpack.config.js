@@ -26,14 +26,12 @@ const getExtensionFileType = (browser) => {
 };
 
 // Webpack 5 no longer polyfills Node core modules. source/dingocoin.js relies on
-// `crypto` and `Buffer`, so map them to the same browserify implementations
-// webpack 4 used to inject automatically.
+// `crypto` and `Buffer`, so map them to browser implementations.
 const nodePolyfills = {
   fallback: {
     buffer: require.resolve("buffer/"),
-    crypto: require.resolve("crypto-browserify"),
+    crypto: path.join(__dirname, "polyfills", "crypto.js"),
     stream: require.resolve("stream-browserify"),
-    vm: require.resolve("vm-browserify"),
     // Only required inside micro-ftch's Node-only fetch path (via web3-utils).
     http: false,
     https: false,

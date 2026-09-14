@@ -52,7 +52,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["webpack.config.js", "test/**/*.js"],
+    files: ["webpack.config.js", "polyfills/**/*.js", "test/**/*.js"],
     extends: [js.configs.recommended],
     languageOptions: {
       sourceType: "commonjs",
