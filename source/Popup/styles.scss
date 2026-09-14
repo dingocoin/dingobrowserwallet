@@ -5,6 +5,8 @@ $secondary-alt: #ffffff;
 $theme-colors: (
   "primary": $primary,
   "secondary": $secondary,
+  "warning": #ffc107,
+  "danger": #dc3545,
 );
 @import "bootstrap/scss/bootstrap";
 
@@ -183,5 +185,39 @@ body {
   margin-top: 7rem;
   h3 {
     margin-bottom: 0;
+  }
+}
+
+.welcome {
+  margin-top: 4rem;
+
+  h3 {
+    margin-bottom: 0.25rem;
+  }
+
+  p {
+    color: #7a7a7a;
+  }
+
+  .btn {
+    display: block;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+}
+
+.modal-note {
+  font-size: 0.85rem;
+}
+
+.reveal {
+  .phrase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+  }
+
+  .backup-instructions {
+    font-size: 0.8rem;
   }
 }

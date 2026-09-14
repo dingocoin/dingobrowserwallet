@@ -1,5 +1,8 @@
 const crypto = require("crypto");
 const { secp256k1 } = require("@noble/curves/secp256k1.js");
+const bip39 = require("@scure/bip39");
+const { wordlist } = require("@scure/bip39/wordlists/english.js");
+const { HDKey } = require("@scure/bip32");
 const bs58 = require("bs58");
 const bitcoin = require("bitcoinjs-lib");
 const Web3Utils = require("web3-utils");
@@ -307,6 +310,122 @@ const createSignedRawTransaction = (
   };
 };
 
+// BIP44 path for recovery-phrase accounts: m/44'/3'/0'/0/<index>. Coin type 3
+// matches Dingocoin's BIP39 tool (github.com/dingocoin/bip39). Changing this
+// would make existing recovery phrases restore to different addresses.
+const HD_PATH = "m/44'/3'/0'/0";
+const MNEMONIC_WORD_COUNTS = [12, 15, 18, 21, 24];
+
+// Lowercases and collapses whitespace so typed or pasted phrases validate.
+const normalizeMnemonic = (phrase) => {
+  return phrase.trim().toLowerCase().split(/\s+/).join(" ");
+};
+
+// New 12-word (128-bit) English recovery phrase.
+const generateMnemonic = () => {
+  return bip39.generateMnemonic(wordlist, 128);
+};
+
+// Returns null for a valid phrase, otherwise a message describing the problem.
+const mnemonicError = (phrase) => {
+  const words = normalizeMnemonic(phrase).split(" ").filter((w) => w !== "");
+  if (!MNEMONIC_WORD_COUNTS.includes(words.length)) {
+    return `Recovery phrases have 12, 15, 18, 21 or 24 words (got ${words.length}).`;
+  }
+  const unknown = words.findIndex((w) => !wordlist.includes(w));
+  if (unknown !== -1) {
+    return `Word ${unknown + 1} ("${words[unknown]}") is not a recovery phrase word.`;
+  }
+  if (!bip39.validateMnemonic(words.join(" "), wordlist)) {
+    return "Invalid recovery phrase. Check the spelling and order of the words.";
+  }
+  return null;
+};
+
+const mnemonicToEntropy = (phrase) => {
+  return Buffer.from(bip39.mnemonicToEntropy(normalizeMnemonic(phrase), wordlist));
+};
+
+const entropyToMnemonic = (entropy) => {
+  return bip39.entropyToMnemonic(entropy, wordlist);
+};
+
+// Private key of recovery-phrase account <index> (no BIP39 passphrase).
+const hdPrivateKey = (entropy, index) => {
+  if (!Number.isInteger(index) || index < 0 || index >= 0x80000000) {
+    throw new Error("Invalid account index");
+  }
+  const seed = bip39.mnemonicToSeedSync(entropyToMnemonic(entropy));
+  const key = HDKey.fromMasterSeed(seed).derive(`${HD_PATH}/${index}`);
+  return Buffer.from(key.privateKey);
+};
+
+// Password-based encryption for secrets stored by this version onwards:
+// PBKDF2-SHA512 (WebCrypto) and AES-256-GCM, so a wrong password or corrupted
+// data fails to decrypt instead of returning garbage. Parameters are stored
+// with the ciphertext so they can be strengthened later.
+const VAULT_ITERATIONS = 600000;
+
+const vaultKey = async (password, salt, iterations, usage) => {
+  const { subtle } = globalThis.crypto;
+  const material = await subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-512", salt, iterations },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    [usage]
+  );
+};
+
+const encryptVault = async (plaintext, password) => {
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const key = await vaultKey(password, salt, VAULT_ITERATIONS, "encrypt");
+  const ciphertext = await globalThis.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    plaintext
+  );
+  return {
+    kdf: "pbkdf2-sha512",
+    iterations: VAULT_ITERATIONS,
+    salt: Buffer.from(salt).toString("hex"),
+    cipher: "aes-256-gcm",
+    iv: Buffer.from(iv).toString("hex"),
+    ciphertext: Buffer.from(ciphertext).toString("hex"),
+  };
+};
+
+// Resolves to the plaintext, or null if the password is wrong.
+const decryptVault = async (vault, password) => {
+  if (vault.kdf !== "pbkdf2-sha512" || vault.cipher !== "aes-256-gcm") {
+    throw new Error("Unsupported vault format");
+  }
+  const key = await vaultKey(
+    password,
+    Buffer.from(vault.salt, "hex"),
+    vault.iterations,
+    "decrypt"
+  );
+  try {
+    const plaintext = await globalThis.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: Buffer.from(vault.iv, "hex") },
+      key,
+      Buffer.from(vault.ciphertext, "hex")
+    );
+    return Buffer.from(plaintext);
+  } catch {
+    return null;
+  }
+};
+
 module.exports = {
   DUST_THRESHOLD,
   FEE_RATE,
@@ -327,4 +446,13 @@ module.exports = {
   encrypt,
   decrypt,
   createSignedRawTransaction,
+  HD_PATH,
+  normalizeMnemonic,
+  generateMnemonic,
+  mnemonicError,
+  mnemonicToEntropy,
+  entropyToMnemonic,
+  hdPrivateKey,
+  encryptVault,
+  decryptVault,
 };

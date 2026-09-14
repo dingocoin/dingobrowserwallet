@@ -4,6 +4,7 @@ import { Button, Container, Form, Navbar } from "react-bootstrap";
 import browser from "webextension-polyfill";
 import "./styles.scss";
 import dingocoin from "../dingocoin";
+import keyring from "../accounts";
 
 const SignData: React.FC = () => {
   const [id, setId] = React.useState(null);
@@ -11,9 +12,11 @@ const SignData: React.FC = () => {
   const [data, setData] = React.useState(null);
 
   const [account, setAccount] = React.useState(undefined);
+  const [wallet, setWallet] = React.useState(undefined);
   React.useEffect(() => {
     (async () => {
-      const active = await browser.storage.sync.get("activeAccount");
+      const active = await browser.storage.sync.get(["activeAccount", "wallet"]);
+      setWallet(active.wallet);
       if ("activeAccount" in active) {
         setAccount(active.activeAccount);
       } else {
@@ -31,20 +34,22 @@ const SignData: React.FC = () => {
   const [signPasswordError, setSignPasswordError] = React.useState(null);
   React.useEffect(() => {
     if (signPassword.length === 0) {
-      setSignPasswordError("Account password required.");
+      setSignPasswordError("Password required.");
     } else {
       setSignPasswordError(null);
     }
   }, [signPassword]);
 
-  const onApprove = (e: any) => {
+  const [approving, setApproving] = React.useState(false);
+  const onApprove = async (e: any) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const privKey = dingocoin.decrypt(account, signPassword);
-    const address = dingocoin.toAddress(privKey);
-    if (address !== account.address) {
-      setSignPasswordError("Incorrect account password.");
+    setApproving(true);
+    const privKey = await keyring.unlockAccount(account, signPassword, wallet);
+    setApproving(false);
+    if (privKey === null) {
+      setSignPasswordError("Incorrect password.");
       return;
     }
 
@@ -128,7 +133,7 @@ const SignData: React.FC = () => {
             <Form noValidate onSubmit={onApprove}>
               <Form.Group className="mb-3">
                 <Form.Control
-                  placeholder="Account password"
+                  placeholder="Password"
                   className="mt-2 mb-2"
                   type="password"
                   value={signPassword}
@@ -146,7 +151,7 @@ const SignData: React.FC = () => {
                 className="mx-2"
                 variant="primary"
                 type="submit"
-                disabled={signPasswordError !== null}
+                disabled={signPasswordError !== null || approving}
               >
                 Approve
               </Button>
