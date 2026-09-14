@@ -23,6 +23,7 @@
     "build:chrome": "webpack --config-node-env=production --env browser=chrome",
     "build:firefox": "webpack --config-node-env=production --env browser=firefox",
     "build": "npm run build:chrome && npm run build:firefox",
+    "build:chrome:test": "webpack --config-node-env=production --env browser=chrome --env testBuild",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
