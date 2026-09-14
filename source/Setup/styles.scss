@@ -1,0 +1,100 @@
+$primary: #1e4151;
+$secondary: #fbf7e9;
+$secondary-alt: #ffffff;
+
+$theme-colors: (
+  "primary": $primary,
+  "secondary": $secondary,
+  "dark": $primary,
+  "warning": #ffc107,
+  "danger": #dc3545
+);
+@import "bootstrap/scss/bootstrap";
+
+html, body, #setup-root {
+  min-height: 100%;
+  background-color: $secondary;
+  font-family: "Arvo", sans-serif;
+}
+
+.navbar {
+  background-color: $primary;
+  z-index: 1000;
+}
+
+.navbar-brand {
+  margin: 0;
+}
+
+.navbar-brand img {
+  max-width: 2rem;
+}
+
+.navbar span {
+  color: $secondary;
+  font-weight: 700 !important;
+}
+
+#setup {
+  max-width: 40rem;
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+
+  h1 {
+    font-size: 1.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+  }
+
+  .actions.stacked {
+    flex-direction: column;
+  }
+
+  .note {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+  }
+
+  .verify-word {
+    margin-bottom: 0.75rem;
+  }
+}
+
+.phrase-box {
+  position: relative;
+  margin-bottom: 1.5rem;
+  cursor: default;
+
+  &.concealed {
+    cursor: pointer;
+
+    .phrase-grid {
+      filter: blur(0.5rem);
+      user-select: none;
+    }
+  }
+
+  .phrase-cover {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    text-align: center;
+    font-weight: 700;
+  }
+}
+
+.input-error {
+  font-size: 0.875em;
+  color: #dc3545;
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+}

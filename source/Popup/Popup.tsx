@@ -12,6 +12,7 @@ import {
   Dropdown,
   OverlayTrigger,
   Tooltip,
+  Alert,
 } from "react-bootstrap";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -24,9 +25,16 @@ import {
   faTrashAlt,
   faAngleRight,
   faPaperPlane,
+  faKey,
+  faUndoAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import dingocoin from "../dingocoin";
+import keyring from "../accounts";
 import provider from "../provider";
+import {
+  BackupInstructions,
+  PhraseGrid,
+} from "../components/RecoveryPhrase";
 
 import "./styles.scss";
 import DingocoinLogo from "../assets/img/dingocoin.png";
@@ -50,47 +58,90 @@ const Popup: React.FC = () => {
   const [activeUtxos, setActiveUtxos] = React.useState(null);
   const [activeTransit, setActiveTransit] = React.useState(null);
   const [menuShow, setMenuShow] = React.useState(false);
+  // Encrypted recovery phrase, or null if the wallet has none yet.
+  const [wallet, setWallet] = React.useState(null);
+
+  // Recovery phrase setup runs in a full tab: the popup closes when it loses focus.
+  const openSetup = async (mode: "create" | "restore") => {
+    await browser.tabs.create({
+      url: browser.runtime.getURL(`setup.html?mode=${mode}`),
+    });
+    window.close();
+  };
 
   const [createAccountShow, setCreateAccountShow] = React.useState(false);
-  const createAccountPasswordRef = React.createRef();
+  const createAccountPasswordRef = React.useRef(null);
   const [createAccountLabel, setCreateAccountLabel] = React.useState("");
   const [createAccountPassword, setCreateAccountPassword] = React.useState("");
-  const [createAccountConfirmPassword, setCreateAccountConfirmPassword] =
-    React.useState("");
+  const [createAccountPasswordError, setCreateAccountPasswordError] =
+    React.useState(null);
+  const [createAccountBusy, setCreateAccountBusy] = React.useState(false);
   React.useEffect(() => {
     if (createAccountShow === true) {
       setCreateAccountLabel("");
       setCreateAccountPassword("");
-      setCreateAccountConfirmPassword("");
-    }
-  }, [createAccountShow]);
-  const [createAccountPasswordError, setCreateAccountPasswordError] =
-    React.useState(null);
-  React.useEffect(() => {
-    if (createAccountPassword.length < 8) {
-      setCreateAccountPasswordError("Password too short.");
-    } else if (createAccountPassword !== createAccountConfirmPassword) {
-      setCreateAccountPasswordError("Password inputs do not match.");
-    } else {
       setCreateAccountPasswordError(null);
     }
-  }, [createAccountPassword, createAccountConfirmPassword]);
+  }, [createAccountShow]);
+  const createAccountClicked = () => {
+    setMenuShow(false);
+    if (wallet === null) {
+      openSetup("create");
+    } else {
+      setCreateAccountShow(true);
+    }
+  };
   const doCreate = async (e: any) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const privKey = dingocoin.randomPrivateKey();
-    const encrypted = dingocoin.encrypt(privKey, createAccountPassword);
-    (encrypted as any).label = createAccountLabel;
-    (encrypted as any).address = dingocoin.toAddress(privKey);
+    setCreateAccountBusy(true);
+    const account = await keyring.createHdAccount(
+      wallet,
+      createAccountPassword,
+      accounts,
+      createAccountLabel
+    );
+    setCreateAccountBusy(false);
+    if (account === null) {
+      setCreateAccountPasswordError("Incorrect password.");
+      createAccountPasswordRef.current?.focus();
+      return;
+    }
 
-    accounts.push(encrypted);
-    await browser.storage.sync.set({ accounts: accounts });
-    setAccounts(accounts);
+    const updated = [...accounts, account];
+    await browser.storage.sync.set({ accounts: updated });
+    setAccounts(updated);
     setCreateAccountShow(false);
+    await switchAccount(account);
+  };
 
-    if (activeAccount === null) {
-      await switchAccount(encrypted);
+  const revealPasswordRef = React.useRef(null);
+  const [revealShow, setRevealShow] = React.useState(false);
+  const [revealPassword, setRevealPassword] = React.useState("");
+  const [revealPasswordError, setRevealPasswordError] = React.useState(null);
+  const [revealBusy, setRevealBusy] = React.useState(false);
+  const [revealWords, setRevealWords] = React.useState(null);
+  // Clear the phrase from memory whenever the dialog opens or closes.
+  const setRevealOpen = (open: boolean) => {
+    setRevealPassword("");
+    setRevealPasswordError(null);
+    setRevealWords(null);
+    setRevealShow(open);
+  };
+  const doReveal = async (e: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setRevealBusy(true);
+    const mnemonic = await keyring.revealMnemonic(wallet, revealPassword);
+    setRevealBusy(false);
+    if (mnemonic === null) {
+      setRevealPasswordError("Incorrect password.");
+      revealPasswordRef.current?.focus();
+    } else {
+      setRevealPassword("");
+      setRevealWords(mnemonic.split(" "));
     }
   };
 
@@ -138,22 +189,26 @@ const Popup: React.FC = () => {
       setImportAccountConfirmPassword("");
     }
   }, [importAccountShow]);
+  const [importAccountBusy, setImportAccountBusy] = React.useState(false);
   const doImport = async (e: any) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const privKey = dingocoin.fromWif(importAccountWif);
-    const encrypted = dingocoin.encrypt(privKey, importAccountPassword);
-    (encrypted as any).label = importAccountLabel;
-    (encrypted as any).address = dingocoin.toAddress(privKey);
+    setImportAccountBusy(true);
+    const account = await keyring.createKeyAccount(
+      dingocoin.fromWif(importAccountWif),
+      importAccountPassword,
+      importAccountLabel
+    );
+    setImportAccountBusy(false);
 
-    accounts.push(encrypted);
-    await browser.storage.sync.set({ accounts: accounts });
-    setAccounts(accounts);
+    const updated = [...accounts, account];
+    await browser.storage.sync.set({ accounts: updated });
+    setAccounts(updated);
     setImportAccountShow(false);
 
     if (activeAccount === null) {
-      await switchAccount(encrypted);
+      await switchAccount(account);
     }
   };
 
@@ -183,7 +238,7 @@ const Popup: React.FC = () => {
     setRenameShow(false);
   };
 
-  const exportPasswordRef = React.createRef();
+  const exportPasswordRef = React.useRef(null);
   const [exportShow, setExportShow] = React.useState(false);
   const [exportPassword, setExportPassword] = React.useState("");
   const [exportPasswordError, setExportPasswordError] = React.useState(null);
@@ -194,14 +249,17 @@ const Popup: React.FC = () => {
       setExportWif(null);
     }
   }, [exportShow]);
-  const doExport = (e: any) => {
+  const doExport = async (e: any) => {
     e.preventDefault();
     e.stopPropagation();
-    const privKey = dingocoin.decrypt(activeAccount, exportPassword);
-    const address = dingocoin.toAddress(privKey);
-    if (address !== activeAccount.address) {
-      setExportPasswordError("Incorrect account password.");
-      (exportPasswordRef.current as any).focus();
+    const privKey = await keyring.unlockAccount(
+      activeAccount,
+      exportPassword,
+      wallet
+    );
+    if (privKey === null) {
+      setExportPasswordError("Incorrect password.");
+      exportPasswordRef.current?.focus();
     } else {
       setExportPasswordError(null);
       setExportWif(dingocoin.toWif(privKey));
@@ -276,7 +334,7 @@ const Popup: React.FC = () => {
   const [signPasswordError, setSignPasswordError] = React.useState(null);
   React.useEffect(() => {
     if (signPassword.length === 0) {
-      setSignPasswordError("Account password required.");
+      setSignPasswordError("Password required.");
     } else {
       setSignPasswordError(null);
     }
@@ -299,10 +357,13 @@ const Popup: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    const privKey = dingocoin.decrypt(activeAccount, signPassword);
-    const address = dingocoin.toAddress(privKey);
-    if (address !== activeAccount.address) {
-      setSignPasswordError("Incorrect account password.");
+    const privKey = await keyring.unlockAccount(
+      activeAccount,
+      signPassword,
+      wallet
+    );
+    if (privKey === null) {
+      setSignPasswordError("Incorrect password.");
       return;
     }
 
@@ -360,7 +421,10 @@ const Popup: React.FC = () => {
   React.useEffect(() => {
     if (accounts === null) {
       (async () => {
-        const result = await browser.storage.sync.get("accounts");
+        const result = await browser.storage.sync.get(["accounts", "wallet"]);
+        if ("wallet" in result) {
+          setWallet(result.wallet);
+        }
         if ("accounts" in result) {
           setAccounts(result.accounts);
           const active = await browser.storage.sync.get("activeAccount");
@@ -424,7 +488,23 @@ const Popup: React.FC = () => {
         </Container>
       </Navbar>
 
-      {activeAccount === null && (
+      {activeAccount === null && accounts !== null && accounts.length === 0 && (
+        <div className="welcome">
+          <Container className="text-center">
+            <h3>Welcome</h3>
+            <p>Set up your Dingocoin wallet.</p>
+            <Button onClick={() => openSetup("create")}>Create new wallet</Button>
+            <Button variant="outline-primary" onClick={() => openSetup("restore")}>
+              Restore from recovery phrase
+            </Button>
+            <Button variant="link" onClick={() => setImportAccountShow(true)}>
+              Import a private key
+            </Button>
+          </Container>
+        </div>
+      )}
+
+      {activeAccount === null && accounts !== null && accounts.length > 0 && (
         <div className="starter vertical-center">
           <Container className="text-center">
             <Row>
@@ -544,42 +624,61 @@ const Popup: React.FC = () => {
       >
         <Offcanvas.Body>
           {accounts !== null &&
-            accounts.map((x: any, i: any) => (
-              <Button
-                className="menu-item account"
-                onClick={() => switchAccount(x)}
-                key={i}
-              >
-                {x !== activeAccount && (
-                  <span>
-                    {x.label === "" ? x.address : `${x.label} (${x.address})`}
-                  </span>
-                )}
-                {x === activeAccount && (
-                  <span>
-                    <FontAwesomeIcon className="icon" icon={faAngleRight} />
-                    <b>
-                      {x.label === "" ? x.address : `${x.label} (${x.address})`}
-                    </b>
-                  </span>
-                )}
-              </Button>
-            ))}
+            accounts.map((x: any, i: any) => {
+              const name =
+                (x.label === "" ? x.address : `${x.label} (${x.address})`) +
+                (wallet !== null && !keyring.isRecoveryPhraseAccount(x)
+                  ? " · imported"
+                  : "");
+              return (
+                <Button
+                  className="menu-item account"
+                  onClick={() => switchAccount(x)}
+                  key={i}
+                >
+                  {x !== activeAccount && <span>{name}</span>}
+                  {x === activeAccount && (
+                    <span>
+                      <FontAwesomeIcon className="icon" icon={faAngleRight} />
+                      <b>{name}</b>
+                    </span>
+                  )}
+                </Button>
+              );
+            })}
           <hr />
-          <Button
-            className="menu-item"
-            onClick={() => setCreateAccountShow(true)}
-          >
+          <Button className="menu-item" onClick={createAccountClicked}>
             <FontAwesomeIcon className="icon" icon={faPlus} />
             <span>Create account</span>
           </Button>
           <Button
             className="menu-item"
-            onClick={() => setImportAccountShow(true)}
+            onClick={() => {
+              setMenuShow(false);
+              setImportAccountShow(true);
+            }}
           >
             <FontAwesomeIcon className="icon" icon={faLevelDownAlt} />
-            <span>Import account</span>
+            <span>Import private key</span>
           </Button>
+          {wallet !== null && (
+            <Button
+              className="menu-item"
+              onClick={() => {
+                setMenuShow(false);
+                setRevealOpen(true);
+              }}
+            >
+              <FontAwesomeIcon className="icon" icon={faKey} />
+              <span>Show recovery phrase</span>
+            </Button>
+          )}
+          {wallet === null && (
+            <Button className="menu-item" onClick={() => openSetup("restore")}>
+              <FontAwesomeIcon className="icon" icon={faUndoAlt} />
+              <span>Restore from recovery phrase</span>
+            </Button>
+          )}
         </Offcanvas.Body>
       </Offcanvas>
 
@@ -589,7 +688,7 @@ const Popup: React.FC = () => {
         centered
         show={createAccountShow}
         onHide={() => setCreateAccountShow(false)}
-        onEntered={() => (createAccountPasswordRef.current as any).focus()}
+        onEntered={() => createAccountPasswordRef.current?.focus()}
       >
         <Modal.Header closeButton>
           <Modal.Title id="contained-modal-title-vcenter">
@@ -598,6 +697,9 @@ const Popup: React.FC = () => {
         </Modal.Header>
         <Modal.Body>
           <Form onSubmit={doCreate} noValidate>
+            <p className="modal-note">
+              The new account comes from your recovery phrase.
+            </p>
             <Form.Group className="mb-3">
               <Form.Control
                 placeholder="Label (optional)"
@@ -606,23 +708,14 @@ const Popup: React.FC = () => {
               />
               <Form.Control
                 type="password"
-                placeholder="New password (min. 8 char.)"
+                placeholder="Wallet password"
                 className="mt-2"
                 value={createAccountPassword}
-                onChange={(e) => setCreateAccountPassword(e.target.value)}
-                ref={createAccountPasswordRef as any}
-                isValid={createAccountPasswordError === null}
-                isInvalid={createAccountPasswordError !== null}
-              />
-              <Form.Control
-                type="password"
-                placeholder="Confirm new password"
-                className="mt-2"
-                value={createAccountConfirmPassword}
-                onChange={(e) =>
-                  setCreateAccountConfirmPassword(e.target.value)
-                }
-                isValid={createAccountPasswordError === null}
+                onChange={(e) => {
+                  setCreateAccountPassword(e.target.value);
+                  setCreateAccountPasswordError(null);
+                }}
+                ref={createAccountPasswordRef}
                 isInvalid={createAccountPasswordError !== null}
               />
               {createAccountPasswordError && (
@@ -634,10 +727,10 @@ const Popup: React.FC = () => {
             <Button
               variant="primary"
               style={{ width: "100%" }}
-              disabled={createAccountPasswordError !== null}
+              disabled={createAccountPassword.length === 0 || createAccountBusy}
               type="submit"
             >
-              Create account
+              {createAccountBusy ? "Creating…" : "Create account"}
             </Button>
           </Form>
         </Modal.Body>
@@ -653,11 +746,15 @@ const Popup: React.FC = () => {
       >
         <Modal.Header closeButton>
           <Modal.Title id="contained-modal-title-vcenter">
-            Import account
+            Import private key
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form onSubmit={doImport} noValidate>
+            <Alert variant="warning" className="modal-note">
+              Imported keys are not part of your recovery phrase. Keep your own
+              backup of this private key.
+            </Alert>
             <Form.Group className="mb-3">
               <Form.Control
                 placeholder="Label (optional)"
@@ -712,10 +809,11 @@ const Popup: React.FC = () => {
               style={{ width: "100%" }}
               disabled={
                 importAccountWifError !== null ||
-                importAccountPasswordError !== null
+                importAccountPasswordError !== null ||
+                importAccountBusy
               }
             >
-              Import account
+              {importAccountBusy ? "Importing…" : "Import private key"}
             </Button>
           </Form>
         </Modal.Body>
@@ -757,11 +855,11 @@ const Popup: React.FC = () => {
         centered
         show={exportShow}
         onHide={() => setExportShow(false)}
-        onEntered={() => (exportPasswordRef.current as any).focus()}
+        onEntered={() => exportPasswordRef.current?.focus()}
       >
         <Modal.Header closeButton>
           <Modal.Title id="contained-modal-title-vcenter">
-            Export account
+            Export private key
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -770,10 +868,10 @@ const Popup: React.FC = () => {
               <Form.Group className="mb-3">
                 <Form.Control
                   type="password"
-                  placeholder="Enter account password"
+                  placeholder="Password"
                   value={exportPassword}
                   onChange={(e) => setExportPassword(e.target.value)}
-                  ref={exportPasswordRef as any}
+                  ref={exportPasswordRef}
                   isInvalid={exportPasswordError !== null}
                 />
                 {exportPasswordError && (
@@ -819,10 +917,28 @@ const Popup: React.FC = () => {
       >
         <Modal.Header closeButton>
           <Modal.Title id="contained-modal-title-vcenter">
-            Delete account
+            {activeAccount !== null && keyring.isRecoveryPhraseAccount(activeAccount)
+              ? "Remove account"
+              : "Delete account"}
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
+          {activeAccount !== null &&
+            keyring.isRecoveryPhraseAccount(activeAccount) && (
+              <p className="modal-note">
+                This removes the account from the list. It comes from your
+                recovery phrase, so <b>Create account</b> adds it back with the
+                same address.
+              </p>
+            )}
+          {activeAccount !== null &&
+            !keyring.isRecoveryPhraseAccount(activeAccount) && (
+              <Alert variant="danger" className="modal-note">
+                This private key is <b>not</b> part of your recovery phrase.
+                Export it and keep a backup first, or any Dingocoins in this
+                account will be lost.
+              </Alert>
+            )}
           <Form noValidate>
             <Container>
               <Row>
@@ -925,7 +1041,7 @@ const Popup: React.FC = () => {
                   </Form.Label>
                 )}
                 <Form.Control
-                  placeholder="Account password"
+                  placeholder="Password"
                   className="mt-2"
                   type="password"
                   value={signPassword}
@@ -1020,6 +1136,69 @@ const Popup: React.FC = () => {
                 </Button>
               </Form>
             )}
+        </Modal.Body>
+      </Modal>
+
+      <Modal
+        size="lg"
+        aria-labelledby="contained-modal-title-vcenter"
+        centered
+        show={revealShow}
+        onHide={() => setRevealOpen(false)}
+        onEntered={() => revealPasswordRef.current?.focus()}
+      >
+        <Modal.Header closeButton>
+          <Modal.Title id="contained-modal-title-vcenter">
+            Recovery phrase
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {revealWords === null && (
+            <Form onSubmit={doReveal} noValidate>
+              <p className="modal-note">
+                Make sure nobody can see your screen.
+              </p>
+              <Form.Group className="mb-3">
+                <Form.Control
+                  type="password"
+                  placeholder="Wallet password"
+                  value={revealPassword}
+                  onChange={(e) => {
+                    setRevealPassword(e.target.value);
+                    setRevealPasswordError(null);
+                  }}
+                  ref={revealPasswordRef}
+                  isInvalid={revealPasswordError !== null}
+                />
+                {revealPasswordError && (
+                  <Form.Label className="input-error">
+                    {revealPasswordError}
+                  </Form.Label>
+                )}
+              </Form.Group>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                type="submit"
+                disabled={revealPassword.length === 0 || revealBusy}
+              >
+                {revealBusy ? "Unlocking…" : "Show recovery phrase"}
+              </Button>
+            </Form>
+          )}
+          {revealWords !== null && (
+            <div className="reveal">
+              <PhraseGrid words={revealWords} />
+              <BackupInstructions />
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                onClick={() => setRevealOpen(false)}
+              >
+                Done
+              </Button>
+            </div>
+          )}
         </Modal.Body>
       </Modal>
 

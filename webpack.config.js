@@ -74,6 +74,7 @@ module.exports = (env = {}) => {
       popup: path.join(sourcePath, "Popup", "index.tsx"),
       signData: path.join(sourcePath, "SignData", "index.tsx"),
       signTransaction: path.join(sourcePath, "SignTransaction", "index.tsx"),
+      setup: path.join(sourcePath, "Setup", "index.tsx"),
     },
 
     output: {
@@ -174,6 +175,13 @@ module.exports = (env = {}) => {
         chunks: ["signTransaction"],
         hash: true,
         filename: "signTransaction.html",
+      }),
+      new HtmlWebpackPlugin({
+        template: path.join(viewsPath, "setup.html"),
+        inject: "body",
+        chunks: ["setup"],
+        hash: true,
+        filename: "setup.html",
       }),
       // write css file(s) to build folder
       new MiniCssExtractPlugin({ filename: "css/[name].css" }),
