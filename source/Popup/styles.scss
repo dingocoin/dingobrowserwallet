@@ -221,3 +221,30 @@ body {
     font-size: 0.8rem;
   }
 }
+
+.navbar-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+/* ===== OPENED IN A TAB (popup.html?view=full) ===== */
+
+body.full-page {
+  background-color: $secondary;
+}
+
+#popup.full-page {
+  width: 100%;
+  height: auto;
+  min-height: 100vh;
+  overflow: visible;
+  padding-bottom: 3.5rem;
+
+  .content,
+  .welcome,
+  .starter {
+    max-width: 32rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}

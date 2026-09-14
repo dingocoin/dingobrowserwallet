@@ -77,7 +77,7 @@ When you add a new dApp-facing API method, all four files must change together.
   - `sendRawTransaction` returns `{txid}`, or `{code, message}` if the network rejects the transaction. It rejects only if no server is reachable.
   - All amounts are satoshi strings. `createProvider(getClient)` exists for tests.
 - **Block explorer**: https://explorer.dingocoin.com, with `/address/<address>` and `/tx/<txid>`.
-- **`source/Popup/Popup.tsx`**: the main wallet UI in a single large component. It covers creating, importing, exporting, and deleting accounts, switching the active account, showing the balance, and sending.
+- **`source/Popup/Popup.tsx`**: the main wallet UI in a single large component. It covers creating, importing, exporting, and deleting accounts, switching the active account, showing the balance, and sending. The same page also runs in a tab as `popup.html?view=full` (the navbar's "Open in a tab" button; `FULL_PAGE` / `.full-page` styles). In that mode, setup navigates the tab instead of opening a new one.
 
 ### Storage model (`browser.storage.sync`)
 - `accounts`: an array of three record types. The type is decided by `accountType()` in `source/accounts.js`.

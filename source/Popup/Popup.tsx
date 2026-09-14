@@ -27,6 +27,7 @@ import {
   faPaperPlane,
   faKey,
   faUndoAlt,
+  faExpandAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import dingocoin from "../dingocoin";
 import keyring from "../accounts";
@@ -52,6 +53,9 @@ const satoshiToLocaleString = (x: any) => {
   );
 };
 
+// The same page runs in the toolbar popup and, via "Open in a tab", as popup.html?view=full.
+const FULL_PAGE = new URLSearchParams(window.location.search).get("view") === "full";
+
 const Popup: React.FC = () => {
   const [accounts, setAccounts] = React.useState(null);
   const [activeAccount, setActiveAccount] = React.useState(null);
@@ -63,8 +67,18 @@ const Popup: React.FC = () => {
 
   // Recovery phrase setup runs in a full tab: the popup closes when it loses focus.
   const openSetup = async (mode: "create" | "restore") => {
+    const url = browser.runtime.getURL(`setup.html?mode=${mode}`);
+    if (FULL_PAGE) {
+      window.location.assign(url);
+      return;
+    }
+    await browser.tabs.create({ url });
+    window.close();
+  };
+
+  const openFullPage = async () => {
     await browser.tabs.create({
-      url: browser.runtime.getURL(`setup.html?mode=${mode}`),
+      url: browser.runtime.getURL("popup.html?view=full"),
     });
     window.close();
   };
@@ -490,16 +504,27 @@ const Popup: React.FC = () => {
   }, [activeAccount]);
 
   return (
-    <div id="popup">
+    <div id="popup" className={FULL_PAGE ? "full-page" : undefined}>
       <Navbar className="navbar" bg="dark" expand="lg" sticky="top">
         <Container fluid>
           <Navbar.Brand href="#home" className="navbar-brand">
             <img alt="" src={DingocoinLogo} />
           </Navbar.Brand>
           <span>DINGOCOIN</span>
-          <Button onClick={() => setMenuShow(true)}>
-            <FontAwesomeIcon className="icon" icon={faBars} />
-          </Button>
+          <div className="navbar-actions">
+            {!FULL_PAGE && (
+              <Button
+                onClick={openFullPage}
+                title="Open in a tab"
+                aria-label="Open in a tab"
+              >
+                <FontAwesomeIcon className="icon" icon={faExpandAlt} />
+              </Button>
+            )}
+            <Button onClick={() => setMenuShow(true)} aria-label="Menu">
+              <FontAwesomeIcon className="icon" icon={faBars} />
+            </Button>
+          </div>
         </Container>
       </Navbar>
 
