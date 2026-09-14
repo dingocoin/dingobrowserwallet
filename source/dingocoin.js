@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const secp256k1 = require("secp256k1");
+const { secp256k1 } = require("@noble/curves/secp256k1.js");
 const bs58 = require("bs58");
 const bitcoin = require("bitcoinjs-lib");
 const Web3Utils = require("web3-utils");
@@ -41,10 +41,10 @@ const randomPrivateKey = () => {
   return crypto.randomBytes(32);
 };
 
-// Get SECP256k1 public key of private key.
+// Get compressed SECP256k1 public key of private key.
 const toPublicKey = (privKey) => {
-  return secp256k1.publicKeyCreate(privKey, true);
-}
+  return secp256k1.getPublicKey(privKey, true);
+};
 
 // Validate WIF.
 const isWif = (wif) => {
@@ -121,7 +121,7 @@ const isP2sh = (address) => {
 
 // Create Dingocoin address from secp256k1 priv key.
 const toAddress = (privKey) => {
-  const pubKey = secp256k1.publicKeyCreate(privKey, true);
+  const pubKey = toPublicKey(privKey);
   const data = ripemd160(sha256(pubKey));
   const header = Buffer.from([0x1e]);
   const checksum = sha256(sha256(Buffer.concat([header, data]))).slice(0, 4);
@@ -178,12 +178,23 @@ var decrypt = (encrypted, passphrase) => {
   return data;
 };
 
-const sign = (data, privateKey) => {
-  return secp256k1.ecdsaSign(data, privateKey).signature;
+// ECDSA works on 32-byte digests; callers hash first. Never sign raw data.
+const assertDigest = (data) => {
+  if (!(data instanceof Uint8Array) || data.length !== 32) {
+    throw new Error("Expected a 32-byte digest");
+  }
 };
 
+// Deterministic (RFC 6979) low-S ECDSA signature, as 64 bytes r || s.
+const sign = (data, privateKey) => {
+  assertDigest(data);
+  return secp256k1.sign(data, privateKey, { prehash: false });
+};
+
+// Verifies a 64-byte r || s signature. High-S signatures are rejected.
 const verify = (data, signature, publicKey) => {
-  return secp256k1.ecdsaVerify(signature, data, publicKey);
+  assertDigest(data);
+  return secp256k1.verify(signature, data, publicKey, { prehash: false });
 };
 
 const createSignedRawTransaction = (
@@ -264,16 +275,14 @@ const createSignedRawTransaction = (
     );
 
     // Sign and encode as DER.
-    const signature = Buffer.from(
-      secp256k1.ecdsaSign(signHash, privKey).signature
-    );
+    const signature = Buffer.from(sign(signHash, privKey));
     const signatureDer = bitcoin.script.signature.encode(
       signature,
       bitcoin.Transaction.SIGHASH_ALL
     );
 
     // Compute and encode public key (SEC).
-    const publicKey = Buffer.from(secp256k1.publicKeyCreate(privKey));
+    const publicKey = Buffer.from(toPublicKey(privKey));
 
     // Compute signature script.
     const scriptSig = Buffer.concat([

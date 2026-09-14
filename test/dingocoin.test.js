@@ -80,6 +80,56 @@ describe("signing", () => {
     );
   });
 
+  // Expected signatures come from libsecp256k1 (tiny-secp256k1), not from the code under test.
+  it("matches libsecp256k1 when the nonce or digest has a leading zero byte", () => {
+    const vectors = [
+      {
+        // RFC 6979 nonce k = 0x0024696f...
+        digest: dingocoin.sha256(Buffer.from("nonce-leading-zero-141")),
+        signature:
+          "50a36684033c904b3d9d1314781f58124bc5167eee5bbf54f080e15c2b1ead5b5607859e06a06c06405ee53db16d5f3b9f1088185e6a0807668338102a492d24",
+      },
+      {
+        digest: dingocoin.sha256(Buffer.from("digest-leading-zero-9")),
+        signature:
+          "1e637ca3f517f99a8dfc4559a4aaa6acd76521a12d01f70bef83c79388158a4b29dba4c414c7a690d6b31d45f035249faae3b31bb4bdd5cdd2dfc7e524577460",
+      },
+    ];
+    assert.equal(vectors[1].digest[0], 0);
+    for (const { digest, signature } of vectors) {
+      assert.equal(hex(dingocoin.sign(digest, PRIV_KEY)), signature);
+    }
+  });
+
+  it("only signs and verifies 32-byte digests", () => {
+    const publicKey = dingocoin.toPublicKey(PRIV_KEY);
+    const signature = dingocoin.sign(Buffer.alloc(32, 1), PRIV_KEY);
+    for (const data of [Buffer.alloc(31, 1), Buffer.alloc(33, 1), "00".repeat(32)]) {
+      assert.throws(() => dingocoin.sign(data, PRIV_KEY), /32-byte digest/);
+      assert.throws(() => dingocoin.verify(data, signature, publicKey), /32-byte digest/);
+    }
+  });
+
+  it("rejects tampered and high-S signatures", () => {
+    const N = BigInt(
+      "0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"
+    );
+    const digest = dingocoin.sha256(Buffer.from("hello dingo"));
+    const publicKey = dingocoin.toPublicKey(PRIV_KEY);
+    const signature = Buffer.from(dingocoin.sign(digest, PRIV_KEY));
+
+    const tampered = Buffer.from(signature);
+    tampered[10] ^= 1;
+    assert.equal(dingocoin.verify(digest, tampered, publicKey), false);
+
+    const s = BigInt("0x" + hex(signature.subarray(32)));
+    const highS = Buffer.concat([
+      signature.subarray(0, 32),
+      Buffer.from((N - s).toString(16).padStart(64, "0"), "hex"),
+    ]);
+    assert.equal(dingocoin.verify(digest, highS, publicKey), false);
+  });
+
   it("builds and signs a transaction with P2PKH, P2SH, change and OP_RETURN outputs", () => {
     const result = dingocoin.createSignedRawTransaction(
       VINS,
