@@ -133,3 +133,68 @@ describe("coin selection", () => {
     }
   });
 });
+
+describe("consolidation", () => {
+  const confirmed = (i, dingo, height = 100) => ({ ...utxo(i, dingo), height });
+
+  const buildConsolidation = (utxos) => {
+    const plan = dingocoin.selectConsolidation({ utxos });
+    const outputs = [{ address: OWNER, amount: plan.amount }];
+    const signed = dingocoin.createSignedRawTransaction(plan.inputs, outputs, null, plan.fee, OWNER, PRIV_KEY);
+    const bytes = signed.tx.length / 2;
+    const tx = bitcoin.Transaction.fromHex(signed.tx);
+    assert.ok(bytes < 100000, `transaction is ${bytes} bytes`);
+    assert.ok(plan.fee >= dingocoin.feeForBytes(bytes), `fee ${plan.fee} for ${bytes} bytes`);
+    assert.equal(tx.outs.length, 1, "a single coin back to the owner");
+    assert.equal(signed.balanceAmount, 0n);
+    assert.equal(BigInt(tx.outs[0].value), plan.amount);
+    assert.ok(plan.amount >= dingocoin.DUST_THRESHOLD);
+    return { plan, bytes };
+  };
+
+  it("merges the smallest confirmed coins into one", () => {
+    const utxos = [confirmed(1, 500), confirmed(2, 3), confirmed(3, 40), confirmed(4, 2)];
+    const { plan } = buildConsolidation(utxos);
+    assert.deepEqual(plan.inputs.map((u) => u.amount), [2n * DINGO, 3n * DINGO, 40n * DINGO, 500n * DINGO]);
+    assert.equal(plan.eligible, 4);
+    assert.equal(plan.fee, DINGO);
+    assert.equal(plan.amount, 544n * DINGO);
+  });
+
+  it("merges at most one standard transaction's worth of coins, smallest first", () => {
+    const utxos = Array.from({ length: 3000 }, (_, i) => confirmed(i, 1 + (i % 100)));
+    const { plan, bytes } = buildConsolidation(utxos);
+    assert.equal(plan.inputs.length, dingocoin.MAX_CONSOLIDATION_INPUTS);
+    assert.equal(dingocoin.MAX_CONSOLIDATION_INPUTS, 664);
+    assert.equal(plan.eligible, 3000);
+    const largestMerged = plan.inputs.at(-1).amount;
+    assert.ok(utxos.filter((u) => u.amount < largestMerged).every((u) => plan.inputs.includes(u)), "no smaller coin left behind");
+    assert.ok(bytes > 95000);
+  });
+
+  it("skips unconfirmed coins and coins worth less than their input's fee", () => {
+    const utxos = [
+      confirmed(1, 10),
+      confirmed(2, 20),
+      { ...utxo(3, 1), height: 0 }, // unconfirmed
+      { ...utxo(4, 1), height: -1 }, // unconfirmed parent
+      { txid: "cc".repeat(32), vout: 0, amount: 14900000n, height: 50 }, // 0.149 DINGO: not worth its fee
+    ];
+    const { plan } = buildConsolidation(utxos);
+    assert.deepEqual(plan.inputs.map((u) => u.amount), [10n * DINGO, 20n * DINGO]);
+    assert.equal(plan.eligible, 2);
+  });
+
+  it("has nothing to do with fewer than two eligible coins, or when the fee would eat them", () => {
+    for (const utxos of [[], [confirmed(1, 1000)], [confirmed(1, 1000), { ...utxo(2, 5), height: 0 }]]) {
+      assert.throws(() => dingocoin.selectConsolidation({ utxos }), (err) => err.reason === "nothing");
+    }
+    assert.throws(
+      () => dingocoin.selectConsolidation({ utxos: [
+        { txid: "dd".repeat(32), vout: 0, amount: 20000000n, height: 5 },
+        { txid: "ee".repeat(32), vout: 0, amount: 20000000n, height: 5 },
+      ] }),
+      (err) => err.reason === "nothing" && /less than the fee/.test(err.message)
+    );
+  });
+});

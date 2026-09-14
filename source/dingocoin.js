@@ -265,7 +265,7 @@ class CoinSelectionError extends Error {
   constructor(reason, message, maxAmount) {
     super(message);
     this.name = "CoinSelectionError";
-    this.reason = reason; // "dust" | "insufficient" | "too-large"
+    this.reason = reason; // "dust" | "insufficient" | "too-large" | "nothing"
     this.maxAmount = maxAmount; // for "too-large": the most one transaction can send
   }
 }
@@ -339,6 +339,52 @@ const selectCoins = ({ utxos, outputs, data = null, required = [] }) => {
     inputs.push(candidates[next]);
     total += candidates[next].amount;
   }
+};
+
+// Largest number of coins one consolidation transaction can merge.
+const MAX_CONSOLIDATION_INPUTS = Math.floor(
+  (MAX_TX_BYTES - TX_OVERHEAD_BYTES - P2PKH_OUTPUT_BYTES) / P2PKH_INPUT_BYTES
+);
+
+// Plans a transaction that merges the smallest confirmed coins into one coin
+// back to the owner's address, so later sends need fewer inputs.
+//
+// utxos: [{ txid, vout, amount: BigInt, height }] from getSpendableUtxos.
+// Unconfirmed coins are skipped (no chains on pending transactions), and so
+// are coins worth no more than the fee their input adds.
+// Returns { inputs, fee, amount, eligible } where amount is the new coin's
+// value and eligible is how many coins could be merged in total.
+// Throws CoinSelectionError("nothing") when fewer than two coins qualify.
+const selectConsolidation = ({ utxos }) => {
+  const inputFee = (BigInt(P2PKH_INPUT_BYTES) * FEE_RATE + 999n) / 1000n;
+  const outpoint = (x) => `${x.txid}:${x.vout}`;
+  const eligible = utxos
+    .filter((utxo) => utxo.height > 0 && utxo.amount > inputFee)
+    .sort((a, b) =>
+      a.amount === b.amount
+        ? outpoint(a).localeCompare(outpoint(b))
+        : a.amount < b.amount
+        ? -1
+        : 1
+    );
+  if (eligible.length < 2) {
+    throw new CoinSelectionError(
+      "nothing",
+      "There are not enough confirmed coins to consolidate."
+    );
+  }
+  const inputs = eligible.slice(0, MAX_CONSOLIDATION_INPUTS);
+  const total = inputs.reduce((sum, utxo) => sum + utxo.amount, 0n);
+  const fee = feeForBytes(
+    TX_OVERHEAD_BYTES + inputs.length * P2PKH_INPUT_BYTES + P2PKH_OUTPUT_BYTES
+  );
+  if (total - fee < DUST_THRESHOLD) {
+    throw new CoinSelectionError(
+      "nothing",
+      "These coins are worth less than the fee to consolidate them."
+    );
+  }
+  return { inputs, fee, amount: total - fee, eligible: eligible.length };
 };
 
 const createSignedRawTransaction = (
@@ -576,6 +622,8 @@ module.exports = {
   feeForBytes,
   CoinSelectionError,
   selectCoins,
+  MAX_CONSOLIDATION_INPUTS,
+  selectConsolidation,
   sha256,
   ripemd160,
   toSatoshi,
