@@ -214,6 +214,35 @@ describe("provider", () => {
     });
   });
 
+  it("leaves out coinbase outputs that are not yet mature", async () => {
+    const txid = (label) => crypto.createHash("sha256").update(label).digest("hex");
+    const tip = 1000;
+    const utxos = [
+      { tx_hash: txid("coinbase 900"), tx_pos: 0, height: 900, value: 100 }, // 101 blocks: immature
+      { tx_hash: txid("coinbase 761"), tx_pos: 0, height: 761, value: 1 }, // 1001 - 761 = 240: mature
+      { tx_hash: txid("coinbase 762"), tx_pos: 0, height: 762, value: 2 }, // 239 blocks: immature
+      { tx_hash: txid("payment 990"), tx_pos: 1, height: 990, value: 3 }, // recent, not a coinbase
+      { tx_hash: txid("coinbase 500"), tx_pos: 0, height: 500, value: 4 }, // old: not looked up
+      { tx_hash: txid("mempool"), tx_pos: 0, height: 0, value: 5 }, // unconfirmed
+    ];
+    const lookedUp = [];
+    const { FakeWebSocket } = fakeNetwork({
+      "wss://a": dingocoinServer({
+        "blockchain.scripthash.listunspent": () => utxos,
+        "blockchain.headers.subscribe": () => ({ height: tip, hex: "00" }),
+        "blockchain.transaction.id_from_pos": ([height, pos]) => {
+          assert.equal(pos, 0);
+          lookedUp.push(height);
+          return txid(`coinbase ${height}`);
+        },
+      }),
+    });
+    const client = new ElectrumClient({ servers: ["wss://a"], WebSocketImpl: FakeWebSocket });
+    const spendable = await createProvider(() => client).getSpendableUtxos(address);
+    assert.deepEqual(spendable.map((u) => u.amount), ["1", "3", "4", "5"]);
+    assert.deepEqual(lookedUp.sort(), [762, 900, 990].sort());
+  });
+
   it("returns the txid, or the network's rejection, when broadcasting", async () => {
     const { FakeWebSocket } = fakeNetwork({
       "wss://a": dingocoinServer({

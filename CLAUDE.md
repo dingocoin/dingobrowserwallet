@@ -71,7 +71,8 @@ When you add a new dApp-facing API method, all four files must change together.
   - Connection: it starts at a random server and fails over to the others. It refuses servers whose `server.features` genesis hash isn't Dingocoin's. One connection is shared per page, and it reconnects to the next server if the connection drops.
   - Parsing: responses go through `parseJson`, which keeps integers above 2^53 exact as strings, because Electrum sends satoshi amounts as JSON numbers. Never `JSON.parse` Electrum responses directly.
 - **`source/provider.js`**: the wallet's network API, built on Electrum. Addresses are queried by `dingocoin.electrumScriptHash`.
-  - `getUtxos` wraps `blockchain.scripthash.listunspent`. It returns confirmed and unconfirmed outputs, minus outputs already spent in the mempool, and is used as transaction inputs.
+  - `getUtxos` wraps `blockchain.scripthash.listunspent`. It returns confirmed and unconfirmed outputs, minus outputs already spent in the mempool.
+  - `getSpendableUtxos` is `getUtxos` without immature coinbase outputs. It checks only outputs from the last `COINBASE_MATURITY` blocks: an output is a coinbase if its txid equals `blockchain.transaction.id_from_pos(height, 0)`. Send and SignTransaction must use this, not `getUtxos`.
   - `getBalance` wraps `get_balance` and returns `{confirmed, unconfirmed}`. The popup shows these as Balance and Pending; don't sum `getUtxos` for display, since that would count pending amounts twice.
   - `sendRawTransaction` returns `{txid}`, or `{code, message}` if the network rejects the transaction. It rejects only if no server is reachable.
   - All amounts are satoshi strings. `createProvider(getClient)` exists for tests.
@@ -91,9 +92,17 @@ When you add a new dApp-facing API method, all four files must change together.
 ### Amounts and fees
 - Amounts are satoshis stored as `BigInt` (1 DINGO = 1e8 sat).
 - `toSatoshi` and `fromSatoshi` convert amount strings with plain BigInt math. `toSatoshi` rejects more than 8 decimal places instead of rounding.
-- The fee is `FEE_RATE` (1 DINGO) per started kB of the signed tx size plus a 100-byte margin. The estimate comes from a loop that signs a trial tx with a throwaway key and raises the fee until it covers the size.
-- The fee loop and `satoshiToLocaleString` are duplicated in `Popup.tsx` and `SignTransaction.tsx`, so a change to either must be made in both files.
-- Outputs below `DUST_THRESHOLD` (1000 sat) are rejected.
+- Network rules, confirmed against Dingocoin's source and the live network, and encoded as constants in `dingocoin.js`:
+  - **`DUST_THRESHOLD` = 1 DINGO.** Dingocoin's `GetDustThreshold` returns `COIN`, and the network rejects any spendable output below it with "64: dust".
+  - **Size limit.** A standard transaction must be under 100,000 bytes ("64: tx-size"); the wallet caps selection at `MAX_TX_BYTES` = 99,000.
+  - **Coinbase maturity.** Coinbase outputs need `COINBASE_MATURITY` = 240 blocks.
+- **Fee.** `feeForBytes(bytes)` = `FEE_RATE` (1 DINGO) per started kB, plus a 100-byte margin. That is at least the node's minimum relay fee.
+- **Coin selection (`dingocoin.selectCoins({utxos, outputs, data, required})`)** picks the largest coins first and estimates size from upper bounds (149 bytes per P2PKH input). It returns `{inputs, fee}` to pass to `createSignedRawTransaction`:
+  - **Change.** It adds change only if the change is ≥ `DUST_THRESHOLD`; smaller leftovers go to the fee.
+  - **Required inputs.** `required` inputs (from a dApp) are always spent and count as zero value.
+  - **Errors.** It throws `CoinSelectionError` with a `reason` of `dust`, `insufficient`, or `too-large`. `too-large` includes `maxAmount`, the most one transaction can send.
+  - **Where it's used.** Both Popup Send and SignTransaction use `selectCoins`. Never spend every UTXO: large wallets have thousands.
+- `satoshiToLocaleString` is duplicated in `Popup.tsx` and `SignTransaction.tsx`.
 
 ### TypeScript settings
 `strictNullChecks` is off and `allowJs` is on. The code uses `any` heavily and imports the JS modules without types. `source/index.d.ts` declares `*.png` and `*.scss` modules. TypeScript is pinned to 6.0 because typescript-eslint doesn't support TypeScript 7 yet.

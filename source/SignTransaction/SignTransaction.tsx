@@ -24,13 +24,13 @@ const SignTransaction: React.FC = () => {
   const [id, setId] = React.useState(null);
   const [origin, setOrigin] = React.useState(null);
 
-  const [transactionNonWalletVins, setTransactionNonWalletVins] =
-    React.useState(null);
   const [transactionWalletVins, setTransactionWalletVins] =
     React.useState(null);
   const [transactionVouts, setTransactionVouts] = React.useState(null);
   const [transactionData, setTransactionData] = React.useState(null);
   const [transactionFee, setTransactionFee] = React.useState(null);
+  const [transactionInputs, setTransactionInputs] = React.useState(null);
+  const [transactionError, setTransactionError] = React.useState(null);
   const [transactionFeeSufficient, setTransactionFeeSufficient] =
     React.useState(null);
 
@@ -66,7 +66,6 @@ const SignTransaction: React.FC = () => {
           });
         }
       }
-      setTransactionNonWalletVins(nonWalletVins);
 
       // Process vouts.
       const voutsRaw = q.get("vouts").split(",");
@@ -89,7 +88,7 @@ const SignTransaction: React.FC = () => {
       if (activeAccount !== null) {
         let utxos;
         try {
-          utxos = await provider.getUtxos(activeAccount.address);
+          utxos = await provider.getSpendableUtxos(activeAccount.address);
         } catch (err: any) {
           setNetworkError(err.message);
           return;
@@ -99,31 +98,30 @@ const SignTransaction: React.FC = () => {
         });
         setTransactionWalletVins(walletVins);
 
-        // Simulate fee.
-        let signedTx = null;
-        let fee = dingocoin.FEE_RATE;
-        while (true) {
-          const testAccountPrivKey = dingocoin.randomPrivateKey();
-          const testAccountAddress = dingocoin.toAddress(testAccountPrivKey);
-          const test = dingocoin.createSignedRawTransaction(
-            nonWalletVins.concat(walletVins),
-            vouts,
-            opReturn,
-            fee,
-            testAccountAddress,
-            testAccountPrivKey
-          );
-          const requiredFee =
-            BigInt(Math.ceil((test.tx.length / 2 + 100) / 1000)) *
-            dingocoin.FEE_RATE; // 100 bytes allowance for errors.
-          if (fee >= requiredFee) {
-            signedTx = test;
-            break;
+        // The dApp's vins are always spent; wallet coins are added as needed.
+        try {
+          const selection = dingocoin.selectCoins({
+            utxos: walletVins,
+            outputs: vouts,
+            data: opReturn,
+            required: nonWalletVins,
+          });
+          setTransactionInputs(selection.inputs);
+          setTransactionFee(selection.fee);
+          setTransactionFeeSufficient(true);
+        } catch (err: any) {
+          if (!(err instanceof dingocoin.CoinSelectionError)) {
+            throw err;
           }
-          fee += dingocoin.FEE_RATE;
+          setTransactionError(
+            err.reason === "insufficient"
+              ? "Insufficient balance in wallet."
+              : err.reason === "too-large"
+              ? `This transaction needs too many coins. At most ${satoshiToLocaleString(err.maxAmount)} can be sent at once.`
+              : err.message
+          );
+          setTransactionFeeSufficient(false);
         }
-        setTransactionFee(fee);
-        setTransactionFeeSufficient(signedTx.balanceAmount >= 0n);
       }
     })();
   }, []);
@@ -152,7 +150,7 @@ const SignTransaction: React.FC = () => {
     }
 
     const signedTx = dingocoin.createSignedRawTransaction(
-      transactionNonWalletVins.concat(transactionWalletVins),
+      transactionInputs,
       transactionVouts,
       transactionData,
       transactionFee,
@@ -301,7 +299,7 @@ const SignTransaction: React.FC = () => {
             account !== null &&
             transactionFeeSufficient === false && (
               <div>
-                <p style={{ color: "red" }}>Insufficient balance in wallet.</p>
+                <p style={{ color: "red" }}>{transactionError}</p>
                 <Button
                   className="mx-2"
                   variant="outline-dark"

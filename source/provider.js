@@ -19,6 +19,35 @@ const createProvider = (getClient) => {
     }));
   };
 
+  // Outputs that can be spent in the next block: getUtxos without coinbase
+  // outputs younger than COINBASE_MATURITY blocks, which the network rejects
+  // ("premature spend of coinbase"). Only recent outputs are checked: an output
+  // is a coinbase if it is the first transaction of its block.
+  const getSpendableUtxos = async (address) => {
+    const [utxos, tip] = await Promise.all([
+      getUtxos(address),
+      request("blockchain.headers.subscribe", []),
+    ]);
+    const spendHeight = tip.height + 1;
+    const recentHeights = new Set(
+      utxos
+        .filter(
+          (utxo) =>
+            utxo.height > 0 &&
+            spendHeight - utxo.height < dingocoin.COINBASE_MATURITY
+        )
+        .map((utxo) => utxo.height)
+    );
+    const coinbaseTxids = new Set(
+      await Promise.all(
+        [...recentHeights].map((height) =>
+          request("blockchain.transaction.id_from_pos", [height, 0])
+        )
+      )
+    );
+    return utxos.filter((utxo) => !coinbaseTxids.has(utxo.txid));
+  };
+
   // confirmed: balance in blocks. unconfirmed: net change from mempool
   // transactions (negative while an outgoing transaction is pending).
   const getBalance = async (address) => {
@@ -46,7 +75,7 @@ const createProvider = (getClient) => {
     }
   };
 
-  return { getUtxos, getBalance, sendRawTransaction };
+  return { getUtxos, getSpendableUtxos, getBalance, sendRawTransaction };
 };
 
 let client = null;

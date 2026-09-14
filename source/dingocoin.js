@@ -6,9 +6,17 @@ const { HDKey } = require("@scure/bip32");
 const bs58 = require("bs58");
 const bitcoin = require("bitcoinjs-lib");
 
-const DUST_THRESHOLD = 1000n;
-const FEE_RATE = 100000000n;
+// Dingocoin treats every spendable output below 1 DINGO as dust and refuses to
+// relay transactions that create one (GetDustThreshold in dingocoin's
+// primitives/transaction.h; the network answers "64: dust").
+const DUST_THRESHOLD = 100000000n;
+const FEE_RATE = 100000000n; // per started kB, plus a 100-byte margin
 const UTXO_MAX_AMOUNT = 10000000000n * 100000000n - 1n; // 10 billion minus 1.
+// Standard transactions must be smaller than 100,000 bytes ("64: tx-size").
+// Leave room for the difference between estimated and actual sizes.
+const MAX_TX_BYTES = 99000;
+// Coinbase outputs can be spent once the spending block is 240 blocks deeper.
+const COINBASE_MATURITY = 240;
 
 const isBs58 = (x) => {
   return x.match(/^[1-9A-HJ-NP-Za-km-z]+$/);
@@ -237,6 +245,100 @@ const sign = (data, privateKey) => {
 const verify = (data, signature, publicKey) => {
   assertDigest(data);
   return secp256k1.verify(signature, data, publicKey, { prehash: false });
+};
+
+// Fee for a transaction of the given size, as the send flows have always charged.
+const feeForBytes = (bytes) => {
+  return BigInt(Math.ceil((bytes + 100) / 1000)) * FEE_RATE;
+};
+
+// Upper bounds for serialized sizes, so estimated fees are never too low.
+const TX_OVERHEAD_BYTES = 4 + 3 + 3 + 4; // version, input and output counts, locktime
+// Outpoint 36, script length 1, scriptSig (DER signature + sighash ≤ 73 bytes,
+// compressed public key 33, two push opcodes) ≤ 108, sequence 4.
+const P2PKH_INPUT_BYTES = 149;
+const P2PKH_OUTPUT_BYTES = 34;
+const outputBytes = (address) => (isP2sh(address) ? 32 : P2PKH_OUTPUT_BYTES);
+const dataOutputBytes = (data) => 8 + 1 + 1 + (data.length > 75 ? 2 : 1) + data.length;
+
+class CoinSelectionError extends Error {
+  constructor(reason, message, maxAmount) {
+    super(message);
+    this.name = "CoinSelectionError";
+    this.reason = reason; // "dust" | "insufficient" | "too-large"
+    this.maxAmount = maxAmount; // for "too-large": the most one transaction can send
+  }
+}
+
+// Chooses inputs for createSignedRawTransaction and the fee to pass it.
+//
+// utxos: [{ txid, vout, amount: BigInt }] the wallet may spend, largest first.
+// required: inputs that must be spent (e.g. named by a dApp); they count as
+//   zero value, like createSignedRawTransaction treats them.
+// Returns { inputs, fee }. Change of at least DUST_THRESHOLD comes back to the
+// owner; smaller change is left to the miners instead of creating dust.
+// Throws CoinSelectionError when the outputs can't be paid.
+const selectCoins = ({ utxos, outputs, data = null, required = [] }) => {
+  for (const output of outputs) {
+    if (output.amount < DUST_THRESHOLD) {
+      throw new CoinSelectionError("dust", "Each output must be at least 1 DINGO.");
+    }
+  }
+  const target = outputs.reduce((sum, output) => sum + output.amount, 0n);
+  const fixedBytes =
+    TX_OVERHEAD_BYTES +
+    outputs.reduce((sum, output) => sum + outputBytes(output.address), 0) +
+    (data === null ? 0 : dataOutputBytes(data));
+  const bytesFor = (inputCount, withChange) =>
+    fixedBytes +
+    inputCount * P2PKH_INPUT_BYTES +
+    (withChange ? P2PKH_OUTPUT_BYTES : 0);
+
+  const outpoint = (x) => `${x.txid}:${x.vout}`;
+  const requiredOutpoints = new Set(required.map(outpoint));
+  const candidates = utxos
+    .filter((utxo) => !requiredOutpoints.has(outpoint(utxo)))
+    .sort((a, b) =>
+      a.amount === b.amount
+        ? outpoint(a).localeCompare(outpoint(b))
+        : a.amount > b.amount
+        ? -1
+        : 1
+    );
+
+  const inputs = [...required];
+  let total = 0n;
+  const maxInputs = Math.floor((MAX_TX_BYTES - fixedBytes) / P2PKH_INPUT_BYTES);
+  for (let next = 0; ; next++) {
+    if (inputs.length > 0) {
+      const changeFee = feeForBytes(bytesFor(inputs.length, true));
+      if (total - target - changeFee >= DUST_THRESHOLD) {
+        return { inputs, fee: changeFee };
+      }
+      if (total - target >= feeForBytes(bytesFor(inputs.length, false))) {
+        // No change output: whatever is left over (less than the dust threshold
+        // plus one fee step) goes to the fee.
+        return { inputs, fee: total - target };
+      }
+    }
+    if (next >= candidates.length) {
+      throw new CoinSelectionError("insufficient", "Insufficient balance.");
+    }
+    if (inputs.length + 1 > maxInputs) {
+      const usable = Math.max(maxInputs - required.length, 0);
+      const best = candidates
+        .slice(0, usable)
+        .reduce((sum, utxo) => sum + utxo.amount, 0n);
+      const maxAmount = best - feeForBytes(bytesFor(required.length + usable, false));
+      throw new CoinSelectionError(
+        "too-large",
+        "This amount needs too many coins for one transaction.",
+        maxAmount > 0n ? maxAmount : 0n
+      );
+    }
+    inputs.push(candidates[next]);
+    total += candidates[next].amount;
+  }
 };
 
 const createSignedRawTransaction = (
@@ -469,6 +571,11 @@ module.exports = {
   DUST_THRESHOLD,
   FEE_RATE,
   UTXO_MAX_AMOUNT,
+  MAX_TX_BYTES,
+  COINBASE_MATURITY,
+  feeForBytes,
+  CoinSelectionError,
+  selectCoins,
   sha256,
   ripemd160,
   toSatoshi,
