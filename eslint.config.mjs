@@ -47,6 +47,8 @@ export default defineConfig(
     },
     rules: {
       "@typescript-eslint/no-require-imports": "off",
+      // `const crypto = require("crypto")` intentionally shadows the Web Crypto global.
+      "no-redeclare": ["error", { builtinGlobals: false }],
     },
   },
   {
