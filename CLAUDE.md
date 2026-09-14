@@ -75,6 +75,7 @@ When you add a new dApp-facing API method, all four files must change together.
   - `getBalance` wraps `get_balance` and returns `{confirmed, unconfirmed}`. The popup shows these as Balance and Pending; don't sum `getUtxos` for display, since that would count pending amounts twice.
   - `sendRawTransaction` returns `{txid}`, or `{code, message}` if the network rejects the transaction. It rejects only if no server is reachable.
   - All amounts are satoshi strings. `createProvider(getClient)` exists for tests.
+- **Block explorer**: https://explorer.dingocoin.com, with `/address/<address>` and `/tx/<txid>`.
 - **`source/Popup/Popup.tsx`**: the main wallet UI in a single large component. It covers creating, importing, exporting, and deleting accounts, switching the active account, showing the balance, and sending.
 
 ### Storage model (`browser.storage.sync`)
