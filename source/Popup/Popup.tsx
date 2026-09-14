@@ -1243,7 +1243,7 @@ const Popup: React.FC = () => {
       </Modal>
 
       <div className="section-footer">
-        <span>© The Dingocoin Project 2021 - 2022</span>
+        <span>© The Dingocoin Project 2021 - 2026</span>
       </div>
     </div>
   );

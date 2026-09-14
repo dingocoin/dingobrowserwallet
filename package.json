@@ -1,6 +1,6 @@
 {
   "name": "dingocoin-browser-extension-wallet",
-  "version": "0.0.7",
+  "version": "1.0.0",
   "description": "A Dingocoin wallet in your browser",
   "private": true,
   "author": {
