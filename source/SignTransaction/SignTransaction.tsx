@@ -34,6 +34,8 @@ const SignTransaction: React.FC = () => {
   const [transactionFeeSufficient, setTransactionFeeSufficient] =
     React.useState(null);
 
+  const [networkError, setNetworkError] = React.useState(null);
+
   const [account, setAccount] = React.useState(undefined);
   const [wallet, setWallet] = React.useState(undefined);
   React.useEffect(() => {
@@ -85,11 +87,16 @@ const SignTransaction: React.FC = () => {
       setTransactionVouts(vouts);
       setTransactionData(opReturn);
       if (activeAccount !== null) {
-        const walletVins = (await provider.getUtxos(activeAccount.address)).map(
-          (x: any) => {
-            return { txid: x.txid, vout: x.vout, amount: BigInt(x.amount) };
-          }
-        );
+        let utxos;
+        try {
+          utxos = await provider.getUtxos(activeAccount.address);
+        } catch (err: any) {
+          setNetworkError(err.message);
+          return;
+        }
+        const walletVins = utxos.map((x: any) => {
+          return { txid: x.txid, vout: x.vout, amount: BigInt(x.amount) };
+        });
         setTransactionWalletVins(walletVins);
 
         // Simulate fee.
@@ -264,6 +271,20 @@ const SignTransaction: React.FC = () => {
             )}
           </Container>
           <hr />
+          {networkError !== null && (
+            <div>
+              <p style={{ color: "red" }}>
+                Could not reach the Dingocoin network. Try again later.
+              </p>
+              <Button
+                className="mx-2"
+                variant="outline-dark"
+                onClick={() => onEnd("Could not reach the Dingocoin network", null)}
+              >
+                Close
+              </Button>
+            </div>
+          )}
           {account !== undefined && account === null && (
             <div>
               <p>To continue, select an active account in your wallet.</p>

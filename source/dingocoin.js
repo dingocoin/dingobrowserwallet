@@ -146,6 +146,21 @@ const isP2sh = (address) => {
   return bs58.decode(address)[0] === 0x16;
 };
 
+// Electrum identifies an address by the reversed SHA-256 of its output script.
+const electrumScriptHash = (address) => {
+  let script;
+  if (isP2pkh(address)) {
+    script = "76a914" + getHash(address) + "88ac";
+  } else if (isP2sh(address)) {
+    script = "a914" + getHash(address) + "87";
+  } else {
+    throw new Error("Invalid address");
+  }
+  return Buffer.from(sha256(Buffer.from(script, "hex")))
+    .reverse()
+    .toString("hex");
+};
+
 // Create Dingocoin address from secp256k1 priv key.
 const toAddress = (privKey) => {
   const pubKey = toPublicKey(privKey);
@@ -464,6 +479,7 @@ module.exports = {
   toWif,
   fromWif,
   isAddress,
+  electrumScriptHash,
   toAddress,
   sign,
   verify,

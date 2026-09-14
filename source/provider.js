@@ -1,51 +1,62 @@
-const PROVIDER_URL = "https://bewp0.dingocoin.io";
+// Wallet data and broadcasting through Dingocoin Electrum servers.
+const dingocoin = require("./dingocoin");
+const { ElectrumClient, ElectrumError } = require("./electrum");
 
-const get = async (link) => {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 5000);
-  return (
-    await fetch(link, {
-      withCredentials: true,
-      method: "GET",
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-      },
-    })
-  ).json();
+const createProvider = (getClient) => {
+  const request = (method, params) => getClient().request(method, params);
+
+  // Spendable outputs: confirmed and unconfirmed, excluding outputs already spent
+  // by unconfirmed transactions. Amounts are satoshi strings.
+  const getUtxos = async (address) => {
+    const utxos = await request("blockchain.scripthash.listunspent", [
+      dingocoin.electrumScriptHash(address),
+    ]);
+    return utxos.map((utxo) => ({
+      txid: utxo.tx_hash,
+      vout: utxo.tx_pos,
+      amount: BigInt(utxo.value).toString(),
+      height: utxo.height,
+    }));
+  };
+
+  // confirmed: balance in blocks. unconfirmed: net change from mempool
+  // transactions (negative while an outgoing transaction is pending).
+  const getBalance = async (address) => {
+    const balance = await request("blockchain.scripthash.get_balance", [
+      dingocoin.electrumScriptHash(address),
+    ]);
+    return {
+      confirmed: BigInt(balance.confirmed).toString(),
+      unconfirmed: BigInt(balance.unconfirmed).toString(),
+    };
+  };
+
+  // Resolves to { txid }, or { code, message } if the network rejects the
+  // transaction. Rejects if no server can be reached.
+  const sendRawTransaction = async (hex) => {
+    try {
+      return {
+        txid: await request("blockchain.transaction.broadcast", [hex]),
+      };
+    } catch (err) {
+      if (err instanceof ElectrumError) {
+        return { code: err.code, message: err.message };
+      }
+      throw err;
+    }
+  };
+
+  return { getUtxos, getBalance, sendRawTransaction };
 };
 
-const post = async (link, data) => {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 5000);
-  return (
-    await fetch(link, {
-      withCredentials: true,
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    })
-  ).json();
-};
+let client = null;
 
-const getUtxos = (address) => {
-  return get(`${PROVIDER_URL}/utxos/${address}`);
-};
-
-const getMempool = (address) => {
-  return get(`${PROVIDER_URL}/mempool/${address}`);
-};
-
-const sendRawTransaction = (hex) => {
-  return post(`${PROVIDER_URL}/sendrawtransaction/`, { tx: hex });
-};
-
-export default {
-  getUtxos,
-  getMempool,
-  sendRawTransaction
+module.exports = {
+  createProvider,
+  ...createProvider(() => {
+    if (client === null) {
+      client = new ElectrumClient();
+    }
+    return client;
+  }),
 };

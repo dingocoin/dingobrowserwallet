@@ -55,7 +55,7 @@ const satoshiToLocaleString = (x: any) => {
 const Popup: React.FC = () => {
   const [accounts, setAccounts] = React.useState(null);
   const [activeAccount, setActiveAccount] = React.useState(null);
-  const [activeUtxos, setActiveUtxos] = React.useState(null);
+  const [activeBalance, setActiveBalance] = React.useState(null);
   const [activeTransit, setActiveTransit] = React.useState(null);
   const [menuShow, setMenuShow] = React.useState(false);
   // Encrypted recovery phrase, or null if the wallet has none yet.
@@ -368,11 +368,16 @@ const Popup: React.FC = () => {
     }
 
     // Fetch latest UTXOs.
-    const vins = (await provider.getUtxos(activeAccount.address)).map(
-      (x: any) => {
-        return { txid: x.txid, vout: x.vout, amount: BigInt(x.amount) };
-      }
-    );
+    let utxos;
+    try {
+      utxos = await provider.getUtxos(activeAccount.address);
+    } catch {
+      setSignAmountError("Could not reach the Dingocoin network. Try again.");
+      return;
+    }
+    const vins = utxos.map((x: any) => {
+      return { txid: x.txid, vout: x.vout, amount: BigInt(x.amount) };
+    });
     const vouts = [
       {
         address: signAddress,
@@ -413,8 +418,11 @@ const Popup: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    const result = await provider.sendRawTransaction(signTx.tx);
-    setSignSendResult(result);
+    try {
+      setSignSendResult(await provider.sendRawTransaction(signTx.tx));
+    } catch (err: any) {
+      setSignSendResult({ code: "network", message: err.message });
+    }
     await refresh();
   };
 
@@ -448,19 +456,23 @@ const Popup: React.FC = () => {
 
   const switchAccount = async (x: any) => {
     await browser.storage.sync.set({ activeAccount: x });
-    setActiveUtxos(null);
+    setActiveBalance(null);
     setActiveTransit(null);
     setActiveAccount(x);
   };
 
   const refresh = async () => {
     if (activeAccount !== null) {
-      setActiveUtxos(await provider.getUtxos(activeAccount.address));
-      setActiveTransit(
-        (await provider.getMempool(activeAccount.address)).change
-      );
+      try {
+        const balance = await provider.getBalance(activeAccount.address);
+        setActiveBalance(balance.confirmed);
+        setActiveTransit(balance.unconfirmed);
+      } catch {
+        setActiveBalance(null);
+        setActiveTransit(null);
+      }
     } else {
-      setActiveUtxos(null);
+      setActiveBalance(null);
       setActiveTransit(null);
     }
   };
@@ -567,16 +579,9 @@ const Popup: React.FC = () => {
               <br />
               <span>
                 <b>
-                  {activeUtxos === null
+                  {activeBalance === null
                     ? "-"
-                    : satoshiToLocaleString(
-                        activeUtxos
-                          .reduce(
-                            (a: any, b: any) => a + BigInt(b.amount),
-                            BigInt(0)
-                          )
-                          .toString()
-                      )}
+                    : satoshiToLocaleString(activeBalance)}
                 </b>
               </span>
             </div>

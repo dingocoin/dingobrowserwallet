@@ -17,10 +17,6 @@
     "storage"
   ],
 
-  "host_permissions": [
-    "https://*.dingocoin.io/*"
-  ],
-
   "background": {
     "service_worker": "js/background.bundle.js"
   },
