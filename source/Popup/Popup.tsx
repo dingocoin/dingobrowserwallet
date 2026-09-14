@@ -27,6 +27,7 @@ import {
   faPaperPlane,
   faKey,
   faUndoAlt,
+  faExpandAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import dingocoin from "../dingocoin";
 import keyring from "../accounts";
@@ -52,6 +53,9 @@ const satoshiToLocaleString = (x: any) => {
   );
 };
 
+// The same page runs in the toolbar popup and, via "Open in a tab", as popup.html?view=full.
+const FULL_PAGE = new URLSearchParams(window.location.search).get("view") === "full";
+
 const Popup: React.FC = () => {
   const [accounts, setAccounts] = React.useState(null);
   const [activeAccount, setActiveAccount] = React.useState(null);
@@ -63,8 +67,18 @@ const Popup: React.FC = () => {
 
   // Recovery phrase setup runs in a full tab: the popup closes when it loses focus.
   const openSetup = async (mode: "create" | "restore") => {
+    const url = browser.runtime.getURL(`setup.html?mode=${mode}`);
+    if (FULL_PAGE) {
+      window.location.assign(url);
+      return;
+    }
+    await browser.tabs.create({ url });
+    window.close();
+  };
+
+  const openFullPage = async () => {
     await browser.tabs.create({
-      url: browser.runtime.getURL(`setup.html?mode=${mode}`),
+      url: browser.runtime.getURL("popup.html?view=full"),
     });
     window.close();
   };
@@ -340,6 +354,7 @@ const Popup: React.FC = () => {
     }
   }, [signPassword]);
   const [signFee, setSignFee] = React.useState(null);
+  const [signRemaining, setSignRemaining] = React.useState(null);
   const [signSendResult, setSignSendResult] = React.useState(null);
   const [signTx, setSignTx] = React.useState(null);
   React.useEffect(() => {
@@ -349,6 +364,7 @@ const Popup: React.FC = () => {
       setSignData("");
       setSignPassword("");
       setSignFee(null);
+      setSignRemaining(null);
       setSignTx(null);
       setSignSendResult(null);
     }
@@ -367,15 +383,15 @@ const Popup: React.FC = () => {
       return;
     }
 
-    // Fetch latest UTXOs.
+    // Fetch the latest spendable UTXOs.
     let utxos;
     try {
-      utxos = await provider.getUtxos(activeAccount.address);
+      utxos = await provider.getSpendableUtxos(activeAccount.address);
     } catch {
       setSignAmountError("Could not reach the Dingocoin network. Try again.");
       return;
     }
-    const vins = utxos.map((x: any) => {
+    const spendable = utxos.map((x: any) => {
       return { txid: x.txid, vout: x.vout, amount: BigInt(x.amount) };
     });
     const vouts = [
@@ -386,33 +402,34 @@ const Popup: React.FC = () => {
     ];
     const data = signData.length === 0 ? null : Buffer.from(signData, "utf8");
 
-    let signedTx = null;
-    let fee = dingocoin.FEE_RATE;
-    while (true) {
-      const test = dingocoin.createSignedRawTransaction(
-        vins,
-        vouts,
-        data,
-        fee,
-        activeAccount.address,
-        privKey
-      );
-      const requiredFee =
-        BigInt(Math.ceil((test.tx.length / 2 + 100) / 1000)) *
-        dingocoin.FEE_RATE; // 100 bytes allowance for errors.
-      if (fee >= requiredFee) {
-        signedTx = test;
-        break;
+    let selection;
+    try {
+      selection = dingocoin.selectCoins({ utxos: spendable, outputs: vouts, data });
+    } catch (err: any) {
+      if (err.reason === "too-large") {
+        setSignAmountError(
+          `Too many coins for one transaction. Max = ${satoshiToLocaleString(err.maxAmount)}`
+        );
+      } else if (err instanceof dingocoin.CoinSelectionError) {
+        setSignAmountError(err.message);
+      } else {
+        throw err;
       }
-      fee += dingocoin.FEE_RATE;
+      return;
     }
 
-    if (signedTx.balanceAmount < 0n) {
-      setSignAmountError("Insufficient balance.");
-    } else {
-      setSignFee(fee);
-      setSignTx(signedTx);
-    }
+    const signedTx = dingocoin.createSignedRawTransaction(
+      selection.inputs,
+      vouts,
+      data,
+      selection.fee,
+      activeAccount.address,
+      privKey
+    );
+    const total = spendable.reduce((sum: bigint, x: any) => sum + x.amount, 0n);
+    setSignFee(selection.fee);
+    setSignRemaining(total - signedTx.outputAmount - selection.fee);
+    setSignTx(signedTx);
   };
   const doSend = async (e: any) => {
     e.preventDefault();
@@ -487,16 +504,27 @@ const Popup: React.FC = () => {
   }, [activeAccount]);
 
   return (
-    <div id="popup">
+    <div id="popup" className={FULL_PAGE ? "full-page" : undefined}>
       <Navbar className="navbar" bg="dark" expand="lg" sticky="top">
         <Container fluid>
           <Navbar.Brand href="#home" className="navbar-brand">
             <img alt="" src={DingocoinLogo} />
           </Navbar.Brand>
           <span>DINGOCOIN</span>
-          <Button onClick={() => setMenuShow(true)}>
-            <FontAwesomeIcon className="icon" icon={faBars} />
-          </Button>
+          <div className="navbar-actions">
+            {!FULL_PAGE && (
+              <Button
+                onClick={openFullPage}
+                title="Open in a tab"
+                aria-label="Open in a tab"
+              >
+                <FontAwesomeIcon className="icon" icon={faExpandAlt} />
+              </Button>
+            )}
+            <Button onClick={() => setMenuShow(true)} aria-label="Menu">
+              <FontAwesomeIcon className="icon" icon={faBars} />
+            </Button>
+          </div>
         </Container>
       </Navbar>
 
@@ -1089,7 +1117,7 @@ const Popup: React.FC = () => {
                 <br />
                 <Form.Label>
                   <b>Balance: </b>
-                  {satoshiToLocaleString(signTx.balanceAmount)}
+                  {satoshiToLocaleString(signRemaining)}
                 </Form.Label>
               </Form.Group>
               <Button variant="primary" style={{ width: "100%" }} type="submit">
@@ -1215,7 +1243,7 @@ const Popup: React.FC = () => {
       </Modal>
 
       <div className="section-footer">
-        <span>© The Dingocoin Project 2021 - 2022</span>
+        <span>© The Dingocoin Project 2021 - 2026</span>
       </div>
     </div>
   );
