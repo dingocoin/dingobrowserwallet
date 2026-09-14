@@ -1,4 +1,5 @@
 const path = require("path");
+const { execSync } = require("child_process");
 const webpack = require("webpack");
 const FilemanagerPlugin = require("filemanager-webpack-plugin");
 const TerserPlugin = require("terser-webpack-plugin");
@@ -32,17 +33,59 @@ const nodePolyfills = {
     buffer: require.resolve("buffer/"),
     crypto: path.join(__dirname, "polyfills", "crypto.js"),
     stream: require.resolve("stream-browserify"),
-    // Only required inside micro-ftch's Node-only fetch path (via web3-utils).
-    http: false,
-    https: false,
-    url: false,
-    util: false,
-    zlib: false,
   },
   plugin: new webpack.ProvidePlugin({
     Buffer: ["buffer", "Buffer"],
     process: "process/browser",
   }),
+};
+
+// Public key for Chrome test builds (the private half was never kept). Chrome
+// gives each unpacked extension directory a new ID, so without a fixed key every
+// zip dropped onto chrome://extensions would install as a separate extension
+// with empty storage. With it, a new test build replaces the previous one and
+// keeps its accounts. Its ID (lkfemlihploppkbhippkdnindnbfkedn) differs from the
+// Chrome Web Store release, so the two never share data. Release builds omit it.
+const TEST_BUILD_KEY =
+  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA236zarT8MVSsd5H+G5GEP0Dw+BOcaWL3frjCZ6VFGvL6Y+Wf/5kVQvk0rZVLayHC4zkNR1UY2dktc67U8JDEJYxiEWhhYaDfEdJOFSYL26mMhkBoyR9Fbe9oSNHEQ3KeTq1llkLCy1GMFKmdn0T5r5dPDie1CHC8xkzFlo11qpLPlYd0LbyuZO9xALDiQ1QDMFT934DelqOQ9dKzCm/tLnTsbCVINbq2K71uWh7+ONAbhydxtGrhQksk64TUgn6c3FgokteuM6WfmhE2T5h7c98z7UL5fDi5N9zl/7qwOJ5o3MM2gfVNUhOza4QMAl+qO0dsrV7d6DM8M7c/fT47XwIDAQAB";
+
+// Marks the manifest of a test build: fixed ID, "(test build)" name and the commit.
+class TestBuildManifestPlugin {
+  apply(compiler) {
+    const { RawSource } = compiler.webpack.sources;
+    compiler.hooks.thisCompilation.tap("TestBuildManifestPlugin", (compilation) => {
+      compilation.hooks.processAssets.tap(
+        {
+          name: "TestBuildManifestPlugin",
+          stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONS,
+        },
+        () => {
+          const asset = compilation.getAsset("manifest.json");
+          const manifest = JSON.parse(asset.source.source().toString());
+          manifest.key = TEST_BUILD_KEY;
+          manifest.name = `${manifest.name} (test build)`;
+          manifest.version_name = `${manifest.version} test ${buildCommit()}`;
+          compilation.updateAsset(
+            "manifest.json",
+            new RawSource(JSON.stringify(manifest, null, 2))
+          );
+        }
+      );
+    });
+  }
+}
+
+const buildCommit = () => {
+  if (process.env.BUILD_SHA) {
+    return process.env.BUILD_SHA.slice(0, 7);
+  }
+  try {
+    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "local";
+  }
 };
 
 module.exports = (env = {}) => {
@@ -53,8 +96,13 @@ module.exports = (env = {}) => {
   }
   // wext-manifest-loader reads the vendor from the environment.
   process.env.TARGET_BROWSER = targetBrowser;
+  const testBuild = Boolean(env.testBuild);
+  if (testBuild && targetBrowser !== "chrome") {
+    throw new Error("Test builds are only supported for Chrome");
+  }
 
-  const archivePath = `${path.join(destPath, targetBrowser)}.${getExtensionFileType(targetBrowser)}`;
+  const outputPath = path.join(destPath, testBuild ? `${targetBrowser}-test` : targetBrowser);
+  const archivePath = `${outputPath}.${getExtensionFileType(targetBrowser)}`;
 
   return {
     devtool: false, // https://github.com/webpack/webpack/issues/1194#issuecomment-560382342
@@ -78,7 +126,7 @@ module.exports = (env = {}) => {
     },
 
     output: {
-      path: path.join(destPath, targetBrowser),
+      path: outputPath,
       filename: "js/[name].bundle.js",
       // Resolve asset URLs relative to the extension page (webpack 4 behaviour).
       publicPath: "",
@@ -149,6 +197,7 @@ module.exports = (env = {}) => {
     plugins: [
       // Plugin to not generate js bundle for manifest entry
       new WextManifestWebpackPlugin(),
+      ...(testBuild ? [new TestBuildManifestPlugin()] : []),
       // Generate sourcemaps
       new webpack.SourceMapDevToolPlugin({ filename: false }),
       new ForkTsCheckerWebpackPlugin(),
@@ -205,7 +254,7 @@ module.exports = (env = {}) => {
             archive: [
               {
                 format: "zip",
-                source: path.join(destPath, targetBrowser),
+                source: outputPath,
                 destination: archivePath,
                 options: { zlib: { level: 6 } },
               },

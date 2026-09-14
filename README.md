@@ -38,6 +38,16 @@ npm run typecheck   # TypeScript
 npm test            # node:test known-answer tests for source/dingocoin.js
 ```
 
+## Test builds
+
+Every pull request and every push to `master` builds the extension in CI. The PR gets a comment, and the run summary gets a section, both linking to `dingocoin-wallet-<version>-<commit>-chrome-test.zip`. To install it:
+
+1. Download the zip. Don't extract it.
+2. Open `chrome://extensions` and turn on **Developer mode**.
+3. Drag the zip onto the page.
+
+Test builds show as **Dingocoin Wallet (test build)**, with the commit in the version. They share a fixed extension ID, so dropping a newer test build replaces the previous one and keeps its accounts. Because that ID differs from the Chrome Web Store release, a test build never touches a store install's wallet. To make one locally, run `npm run build:chrome:test`, which writes `extension/chrome-test.zip`.
+
 ## Production build
 
 ```sh

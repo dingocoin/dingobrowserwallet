@@ -17,6 +17,7 @@ npm run dev:firefox       # webpack --watch → extension/firefox/
 npm run build:chrome      # production build → extension/chrome/ + extension/chrome.zip
 npm run build:firefox     # production build → extension/firefox/ + extension/firefox.xpi
 npm run build             # both
+npm run build:chrome:test # Chrome test build → extension/chrome-test/ + extension/chrome-test.zip
 npm run lint              # ESLint 10 flat config (eslint.config.mjs)
 npm run typecheck         # tsc --noEmit
 npm test                  # node:test, test/**/*.test.js
@@ -25,7 +26,8 @@ node --test --test-name-pattern="signs a transaction" test/dingocoin.test.js   #
 
 - The target browser is passed as `--env browser=<chrome|firefox>`. The config copies it into `TARGET_BROWSER`, because `wext-manifest-loader` reads that environment variable.
 - Babel only transpiles. Type errors come from `npm run typecheck` or from `fork-ts-checker-webpack-plugin` during a webpack build.
-- CI is `.github/workflows/ci.yml`. It runs lint, typecheck, tests, and the build.
+- CI is `.github/workflows/ci.yml`. It runs lint, typecheck, tests, and both builds. It then uploads the Chrome test zip, the Chrome release zip, and the Firefox xpi as single-file artifacts (`archive: false`), so each downloads as the file itself. On PRs from this repo it keeps one `<!-- test-build -->` comment updated with the links.
+- A test build (`--env testBuild`, Chrome only) runs `TestBuildManifestPlugin` in `webpack.config.js`. The plugin adds a fixed public `key`, which gives the stable ID `lkfemlihploppkbhippkdnindnbfkedn`. It also appends "(test build)" to the name and sets `version_name` to `<version> test <commit>` (from `BUILD_SHA` or `git rev-parse`). Chrome gives each unpacked directory a new ID, and a dropped zip is unpacked into a new directory, so without the key every test zip would install separately with empty storage. Release builds must not contain the key.
 - Lint has 0 errors but many warnings from existing code, such as `set-state-in-effect` and `no-create-ref`. `eslint.config.mjs` downgrades a few rules to warnings for now.
 - The release version comes from `package.json`. `wext-manifest-loader` overwrites the `version` in `source/manifest.json` with it. Manifest keys with a vendor prefix, such as `__firefox__applications` or `__chrome|opera__...`, only go into that browser's build.
 
@@ -79,7 +81,7 @@ When you add a new dApp-facing API method, all four files must change together.
 
 ### Amounts and fees
 - Amounts are satoshis stored as `BigInt` (1 DINGO = 1e8 sat).
-- `toSatoshi` and `fromSatoshi` convert through web3-utils gwei with a ÷10 or ×10 adjustment.
+- `toSatoshi` and `fromSatoshi` convert amount strings with plain BigInt math. `toSatoshi` rejects more than 8 decimal places instead of rounding.
 - The fee is `FEE_RATE` (1 DINGO) per started kB of the signed tx size plus a 100-byte margin. The estimate comes from a loop that signs a trial tx with a throwaway key and raises the fee until it covers the size.
 - The fee loop and `satoshiToLocaleString` are duplicated in `Popup.tsx` and `SignTransaction.tsx`, so a change to either must be made in both files.
 - Outputs below `DUST_THRESHOLD` (1000 sat) are rejected.

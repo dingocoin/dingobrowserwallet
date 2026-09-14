@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,6 +12,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # test build comment on PRs
+    env:
+      # For pull requests, name builds after the PR head, not the merge commit.
+      BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
 
@@ -24,10 +31,68 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run build:chrome:test
+
+      - name: Name build files
+        id: files
+        run: |
+          prefix="dingocoin-wallet-$(node -p "require('./package.json').version")-${BUILD_SHA::7}"
+          mkdir -p extension/upload
+          cp extension/chrome-test.zip "extension/upload/$prefix-chrome-test.zip"
+          cp extension/chrome.zip "extension/upload/$prefix-chrome.zip"
+          cp extension/firefox.xpi "extension/upload/$prefix-firefox.xpi"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      # archive: false uploads each file as-is, so the download is the zip itself
+      # and can be dropped straight onto chrome://extensions.
+      - uses: actions/upload-artifact@v7
+        id: chrome-test
+        with:
+          path: extension/upload/${{ steps.files.outputs.prefix }}-chrome-test.zip
+          archive: false
 
       - uses: actions/upload-artifact@v7
+        id: chrome
         with:
-          name: extension
-          path: |
-            extension/chrome.zip
-            extension/firefox.xpi
+          path: extension/upload/${{ steps.files.outputs.prefix }}-chrome.zip
+          archive: false
+
+      - uses: actions/upload-artifact@v7
+        id: firefox
+        with:
+          path: extension/upload/${{ steps.files.outputs.prefix }}-firefox.xpi
+          archive: false
+
+      - name: Write build links
+        env:
+          PREFIX: ${{ steps.files.outputs.prefix }}
+          CHROME_TEST_URL: ${{ steps.chrome-test.outputs.artifact-url }}
+          CHROME_URL: ${{ steps.chrome.outputs.artifact-url }}
+          FIREFOX_URL: ${{ steps.firefox.outputs.artifact-url }}
+        run: |
+          cat > build-links.md <<EOF
+          <!-- test-build -->
+          ### Test build \`${BUILD_SHA::7}\`
+
+          **[$PREFIX-chrome-test.zip]($CHROME_TEST_URL)**
+
+          To install: download it, open \`chrome://extensions\`, turn on **Developer mode**, and drag the zip onto the page.
+          Test builds show as *Dingocoin Wallet (test build)*. Each new one replaces the previous test build and keeps its accounts. They never touch a Chrome Web Store install.
+
+          Release packages: [chrome.zip]($CHROME_URL) · [firefox.xpi]($FIREFOX_URL)
+          EOF
+          cat build-links.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          comment_id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- test-build -->")) | .id' | head -n 1)
+          if [ -n "$comment_id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -F body=@build-links.md > /dev/null
+          else
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file build-links.md
+          fi

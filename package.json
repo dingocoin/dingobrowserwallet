@@ -23,6 +23,7 @@
     "build:chrome": "webpack --config-node-env=production --env browser=chrome",
     "build:firefox": "webpack --config-node-env=production --env browser=firefox",
     "build": "npm run build:chrome && npm run build:firefox",
+    "build:chrome:test": "webpack --config-node-env=production --env browser=chrome --env testBuild",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -48,7 +49,6 @@
     "react-bootstrap": "^2.0.4",
     "react-dom": "^17.0.2",
     "stream-browserify": "^3.0.0",
-    "web3-utils": "^1.6.1",
     "webextension-polyfill": "^0.8.0"
   },
   "devDependencies": {

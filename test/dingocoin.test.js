@@ -172,4 +172,47 @@ describe("amount conversion", () => {
     assert.equal(dingocoin.toSatoshi("1234.56789012"), "123456789012");
     assert.equal(dingocoin.fromSatoshi("123456789012"), "1234.56789012");
   });
+
+  // Same results as the previous web3-utils implementation, checked against it
+  // on ~300,000 generated inputs when it was replaced.
+  it("accepts the amount formats the send form allows", () => {
+    const cases = {
+      "0": "0",
+      "1": "100000000",
+      "1.": "100000000",
+      ".5": "50000000",
+      "007.10": "710000000",
+      "0.00000001": "1",
+      "99999999999999999999.99999999": "9999999999999999999999999999",
+      "-1.5": "-150000000",
+    };
+    for (const [amount, satoshi] of Object.entries(cases)) {
+      assert.equal(dingocoin.toSatoshi(amount), satoshi, amount);
+    }
+  });
+
+  it("rejects malformed amounts and more than 8 decimal places", () => {
+    for (const amount of ["", ".", "-", "1.2.3", "abc", " 1", "1e3", "0x10", "1,5", "+1"]) {
+      assert.throws(() => dingocoin.toSatoshi(amount), undefined, JSON.stringify(amount));
+    }
+    // web3-utils silently truncated a 9th decimal; that would change the amount sent.
+    assert.throws(() => dingocoin.toSatoshi("1.123456789"), /Too many decimal places/);
+    assert.throws(() => dingocoin.toSatoshi(1), /Expected string input/);
+  });
+
+  it("formats satoshis without trailing zeros", () => {
+    const cases = {
+      "0": "0",
+      "-0": "0",
+      "1": "0.00000001",
+      "100000000": "1",
+      "150000000": "1.5",
+      "-150000000": "-1.5",
+      "1000000000000000000000": "10000000000000",
+    };
+    for (const [satoshi, amount] of Object.entries(cases)) {
+      assert.equal(dingocoin.fromSatoshi(satoshi), amount, satoshi);
+    }
+    assert.throws(() => dingocoin.fromSatoshi("1.5"));
+  });
 });
