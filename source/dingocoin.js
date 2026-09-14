@@ -43,7 +43,7 @@ const randomPrivateKey = () => {
 
 // Get SECP256k1 public key of private key.
 const toPublicKey = (privKey) => {
-  return secp256k1.publicKeyCreate(privKey, (compressed = true));
+  return secp256k1.publicKeyCreate(privKey, true);
 }
 
 // Validate WIF.
@@ -121,7 +121,7 @@ const isP2sh = (address) => {
 
 // Create Dingocoin address from secp256k1 priv key.
 const toAddress = (privKey) => {
-  const pubKey = secp256k1.publicKeyCreate(privKey, (compressed = true));
+  const pubKey = secp256k1.publicKeyCreate(privKey, true);
   const data = ripemd160(sha256(pubKey));
   const header = Buffer.from([0x1e]);
   const checksum = sha256(sha256(Buffer.concat([header, data]))).slice(0, 4);

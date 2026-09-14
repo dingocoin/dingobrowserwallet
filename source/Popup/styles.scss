@@ -6,7 +6,7 @@ $theme-colors: (
   "primary": $primary,
   "secondary": $secondary,
 );
-@import "~bootstrap/scss/bootstrap";
+@import "bootstrap/scss/bootstrap";
 
 html {
   font-family: "Arvo", sans-serif;
