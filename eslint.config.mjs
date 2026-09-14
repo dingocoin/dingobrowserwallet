@@ -40,7 +40,7 @@ export default defineConfig(
   },
   {
     // CommonJS modules shared with Node (bundled by webpack, and loaded by node:test).
-    files: ["source/dingocoin.js"],
+    files: ["source/dingocoin.js", "source/accounts.js"],
     languageOptions: {
       sourceType: "commonjs",
       globals: globals.node,

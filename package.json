@@ -33,6 +33,8 @@
     "@fortawesome/free-solid-svg-icons": "^5.15.4",
     "@fortawesome/react-fontawesome": "^0.1.16",
     "@noble/curves": "^2.4.0",
+    "@scure/bip32": "^2.4.0",
+    "@scure/bip39": "^2.4.0",
     "bitcoinjs-lib": "git+https://github.com/rkbling/bitcoinjs-lib.git#001c194c4ab8373aa893e04bba7091f2bc471ca4",
     "bootstrap": "5.1.1",
     "browserify-cipher": "^1.0.1",
