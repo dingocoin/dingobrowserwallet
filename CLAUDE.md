@@ -79,7 +79,7 @@ When you add a new dApp-facing API method, all four files must change together.
 
 ### Amounts and fees
 - Amounts are satoshis stored as `BigInt` (1 DINGO = 1e8 sat).
-- `toSatoshi` and `fromSatoshi` convert through web3-utils gwei with a ÷10 or ×10 adjustment.
+- `toSatoshi` and `fromSatoshi` convert amount strings with plain BigInt math. `toSatoshi` rejects more than 8 decimal places instead of rounding.
 - The fee is `FEE_RATE` (1 DINGO) per started kB of the signed tx size plus a 100-byte margin. The estimate comes from a loop that signs a trial tx with a throwaway key and raises the fee until it covers the size.
 - The fee loop and `satoshiToLocaleString` are duplicated in `Popup.tsx` and `SignTransaction.tsx`, so a change to either must be made in both files.
 - Outputs below `DUST_THRESHOLD` (1000 sat) are rejected.

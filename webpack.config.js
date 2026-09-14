@@ -32,12 +32,6 @@ const nodePolyfills = {
     buffer: require.resolve("buffer/"),
     crypto: path.join(__dirname, "polyfills", "crypto.js"),
     stream: require.resolve("stream-browserify"),
-    // Only required inside micro-ftch's Node-only fetch path (via web3-utils).
-    http: false,
-    https: false,
-    url: false,
-    util: false,
-    zlib: false,
   },
   plugin: new webpack.ProvidePlugin({
     Buffer: ["buffer", "Buffer"],

@@ -5,7 +5,6 @@ const { wordlist } = require("@scure/bip39/wordlists/english.js");
 const { HDKey } = require("@scure/bip32");
 const bs58 = require("bs58");
 const bitcoin = require("bitcoinjs-lib");
-const Web3Utils = require("web3-utils");
 
 const DUST_THRESHOLD = 1000n;
 const FEE_RATE = 100000000n;
@@ -15,18 +14,43 @@ const isBs58 = (x) => {
   return x.match(/^[1-9A-HJ-NP-Za-km-z]+$/);
 };
 
+const SATOSHI_PER_DINGO = 100000000n;
+
+// DINGO amount string ("1", "1.", ".5", "-2.00000001") to satoshis, as a string.
+// Dingocoin has 8 decimal places; more precision is an error, not rounded away.
 const toSatoshi = (x) => {
   if (x === null || x === undefined || typeof x !== "string" || x === "") {
     throw new Error("Expected string input");
   }
-  return (BigInt(Web3Utils.toWei(x, "gwei")) / 10n).toString();
+  const match = x.match(/^(-?)([0-9]*)(?:\.([0-9]*))?$/);
+  if (match === null || (match[2] === "" && !match[3])) {
+    throw new Error(`Invalid amount: ${x}`);
+  }
+  const [, sign, whole, fraction = ""] = match;
+  if (fraction.length > 8) {
+    throw new Error(`Too many decimal places: ${x}`);
+  }
+  const satoshi =
+    BigInt(whole || "0") * SATOSHI_PER_DINGO + BigInt(fraction.padEnd(8, "0"));
+  return (sign === "-" ? -satoshi : satoshi).toString();
 };
 
+// Satoshi amount string to a DINGO string without trailing zeros ("1.5", "0").
 const fromSatoshi = (x) => {
   if (x === null || x === undefined || typeof x !== "string" || x === "") {
     throw new Error("Expected string input");
   }
-  return Web3Utils.fromWei((BigInt(x) * 10n).toString(), "gwei").toString();
+  const satoshi = BigInt(x);
+  const abs = satoshi < 0n ? -satoshi : satoshi;
+  const fraction = (abs % SATOSHI_PER_DINGO)
+    .toString()
+    .padStart(8, "0")
+    .replace(/0+$/, "");
+  return (
+    (satoshi < 0n ? "-" : "") +
+    (abs / SATOSHI_PER_DINGO).toString() +
+    (fraction === "" ? "" : `.${fraction}`)
+  );
 };
 
 // Helper SHA256.
