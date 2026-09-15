@@ -30,10 +30,14 @@ node --test --test-name-pattern="signs a transaction" test/dingocoin.test.js   #
 - CI is `.github/workflows/ci.yml`. It runs lint, typecheck, tests, and both builds. It then uploads the Chrome test zip, the Chrome release zip, and the Firefox xpi as single-file artifacts (`archive: false`), so each downloads as the file itself. On PRs from this repo it keeps one `<!-- test-build -->` comment updated with the links.
 - Releases come from `.github/workflows/release.yml`, which runs manually on `master` (`workflow_dispatch`). It refuses a version that is already tagged or has a release or draft. It runs lint, typecheck and tests, builds Chrome, runs `scripts/package-release.mjs`, and creates a **draft** GitHub Release `v<version>` with the zip and `SHA256SUMS`; publishing the draft creates the tag.
   - **Before releasing:** keep `version` in `package.json` and `source/manifest.json` in sync. The script checks this.
-  - **Firefox:** not released, because `background.service_worker` doesn't run in Firefox.
+  - **Firefox:** not released. It needs AMO signing for permanent installs, and Mozilla's `data_collection_permissions` declaration still has to be decided before any AMO submission.
 - A test build (`--env testBuild`, Chrome only) runs `TestBuildManifestPlugin` in `webpack.config.js`. The plugin adds a fixed public `key`, which gives the stable ID `lkfemlihploppkbhippkdnindnbfkedn`. It also appends "(test build)" to the name and sets `version_name` to `<version> test <commit>` (from `BUILD_SHA` or `git rev-parse`). Chrome gives each unpacked directory a new ID, and a dropped zip is unpacked into a new directory, so without the key every test zip would install separately with empty storage. Release builds must not contain the key.
 - Lint has 0 errors but many warnings from existing code, such as `set-state-in-effect` and `no-create-ref`. `eslint.config.mjs` downgrades a few rules to warnings for now.
-- The release version comes from `package.json`. `wext-manifest-loader` overwrites the `version` in `source/manifest.json` with it. Manifest keys with a vendor prefix, such as `__firefox__applications` or `__chrome|opera__...`, only go into that browser's build.
+- The release version comes from `package.json`. `wext-manifest-loader` overwrites the `version` in `source/manifest.json` with it. Manifest keys with a vendor prefix, such as `__firefox__browser_specific_settings` or `__chrome|opera__...`, only go into that browser's build.
+- Firefox needs different manifest keys, which are vendor-prefixed:
+  - **Background:** Chrome gets `background.service_worker`. Firefox gets `background.scripts`, because it rejects `service_worker` with "background.service_worker is currently disabled".
+  - **Add-on ID:** Firefox's ID lives in `browser_specific_settings.gecko`. The MV2 `applications` key is invalid in MV3, and without the ID `storage.sync` fails for temporary add-ons.
+  - **Checking it:** `npm run lint:firefox` (addons-linter, which also runs in CI) must report 0 errors. Its `DANGEROUS_EVAL` and `UNSAFE_VAR_ASSIGNMENT` warnings come from bundled libraries.
 
 ## Architecture
 

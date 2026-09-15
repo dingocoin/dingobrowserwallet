@@ -17,8 +17,11 @@
     "storage"
   ],
 
-  "background": {
+  "__chrome|opera|edge__background": {
     "service_worker": "js/background.bundle.js"
+  },
+  "__firefox__background": {
+    "scripts": ["js/background.bundle.js"]
   },
 
   "content_scripts": [
@@ -37,9 +40,10 @@
     "name": "The Dingocoin Project"
   },
 
-  "__firefox__applications": {
+  "__firefox__browser_specific_settings": {
     "gecko": {
-      "id": "{186b9e06-824a-402c-b652-897f3304f5d5}"
+      "id": "{186b9e06-824a-402c-b652-897f3304f5d5}",
+      "strict_min_version": "109.0"
     }
   },
 

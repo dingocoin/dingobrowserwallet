@@ -31,6 +31,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Mozilla's linter catches manifest keys Firefox rejects (errors fail the job).
+      - run: npm run lint:firefox
       - run: npm run build:chrome:test
 
       - name: Name build files
