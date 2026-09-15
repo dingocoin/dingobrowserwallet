@@ -78,6 +78,11 @@ body {
     cursor: pointer;
   }
 
+  .account-kind {
+    font-size: 0.7rem;
+    color: #7a7a7a;
+  }
+
   .balance span {
     display: inline;
   }
@@ -111,6 +116,14 @@ body {
 
   hr {
     margin: 0.5rem;
+  }
+
+  .menu-heading {
+    padding: 0.5rem 0.75rem 0.125rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .menu-item {
