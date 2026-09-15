@@ -182,8 +182,9 @@ const Setup: React.FC = () => {
   const passwordForm = (onSubmit: (e: any) => void, submitLabel: string) => (
     <Form noValidate onSubmit={onSubmit}>
       <p>
-        This password unlocks your wallet in this browser. You&apos;ll need it
-        to send Dingocoins, add accounts and view your recovery phrase.
+        This is your <b>wallet password</b>. It unlocks your wallet in this
+        browser, and you&apos;ll need it to send Dingocoins, add accounts and
+        view your recovery phrase.
       </p>
       <Form.Control
         type="password"
@@ -407,10 +408,11 @@ const Setup: React.FC = () => {
             </p>
             {hasImportedAccounts && (
               <Alert variant="warning" className="note">
-                Accounts you added from a private key are still in your wallet,
-                but they are <b>not</b> part of this recovery phrase. Keep a
-                backup of each of their private keys (<b>Export</b> in the
-                account menu).
+                Your legacy accounts and imported keys are still in your
+                wallet, under <b>Legacy &amp; imported keys</b>, but they are{" "}
+                <b>not</b> part of this recovery phrase. Each keeps its own
+                password. Keep a backup of each of their private keys (
+                <b>Export</b> in the account menu).
               </Alert>
             )}
             <div className="actions">
