@@ -102,6 +102,10 @@ When you add a new dApp-facing API method, all four files must change together.
   - **Required inputs.** `required` inputs (from a dApp) are always spent and count as zero value.
   - **Errors.** It throws `CoinSelectionError` with a `reason` of `dust`, `insufficient`, or `too-large`. `too-large` includes `maxAmount`, the most one transaction can send.
   - **Where it's used.** Both Popup Send and SignTransaction use `selectCoins`. Never spend every UTXO: large wallets have thousands.
+- **Consolidation (`dingocoin.selectConsolidation({utxos})`)** plans a send back to the owner's own address. It merges up to `MAX_CONSOLIDATION_INPUTS` (664) of the smallest confirmed coins into one output, with no change.
+  - **Skipped coins.** Unconfirmed coins are skipped, as are coins worth no more than the fee their input adds.
+  - **Errors.** If fewer than two coins qualify, it throws `CoinSelectionError("nothing")`.
+  - **In the popup.** It is reached from the account ⋮ menu, and from the "Too many coins for one transaction" send error. Running it again immediately is safe, because ElectrumX's `listunspent` leaves out outputs already spent in the mempool.
 - `satoshiToLocaleString` is duplicated in `Popup.tsx` and `SignTransaction.tsx`.
 
 ### TypeScript settings

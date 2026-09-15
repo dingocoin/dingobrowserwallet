@@ -28,6 +28,7 @@ import {
   faKey,
   faUndoAlt,
   faExpandAlt,
+  faCompressArrowsAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import dingocoin from "../dingocoin";
 import keyring from "../accounts";
@@ -431,6 +432,79 @@ const Popup: React.FC = () => {
     setSignRemaining(total - signedTx.outputAmount - selection.fee);
     setSignTx(signedTx);
   };
+  // Consolidation: merge the smallest coins into one, in a send to this address.
+  const consolidatePasswordRef = React.useRef(null);
+  const [consolidateShow, setConsolidateShow] = React.useState(false);
+  const [consolidatePlan, setConsolidatePlan] = React.useState(null);
+  const [consolidateError, setConsolidateError] = React.useState(null);
+  const [consolidatePassword, setConsolidatePassword] = React.useState("");
+  const [consolidatePasswordError, setConsolidatePasswordError] =
+    React.useState(null);
+  const [consolidateBusy, setConsolidateBusy] = React.useState(false);
+  const [consolidateResult, setConsolidateResult] = React.useState(null);
+  const openConsolidate = async () => {
+    setSignShow(false);
+    setConsolidatePlan(null);
+    setConsolidateError(null);
+    setConsolidatePassword("");
+    setConsolidatePasswordError(null);
+    setConsolidateResult(null);
+    setConsolidateShow(true);
+    try {
+      const utxos = await provider.getSpendableUtxos(activeAccount.address);
+      setConsolidatePlan(
+        dingocoin.selectConsolidation({
+          utxos: utxos.map((x: any) => ({
+            txid: x.txid,
+            vout: x.vout,
+            amount: BigInt(x.amount),
+            height: x.height,
+          })),
+        })
+      );
+    } catch (err: any) {
+      setConsolidateError(
+        err instanceof dingocoin.CoinSelectionError
+          ? err.message
+          : "Could not reach the Dingocoin network. Try again."
+      );
+    }
+  };
+  const doConsolidate = async (e: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setConsolidateBusy(true);
+    try {
+      const privKey = await keyring.unlockAccount(
+        activeAccount,
+        consolidatePassword,
+        wallet
+      );
+      if (privKey === null) {
+        setConsolidatePasswordError("Incorrect password.");
+        consolidatePasswordRef.current?.focus();
+        return;
+      }
+      const signedTx = dingocoin.createSignedRawTransaction(
+        consolidatePlan.inputs,
+        [{ address: activeAccount.address, amount: consolidatePlan.amount }],
+        null,
+        consolidatePlan.fee,
+        activeAccount.address,
+        privKey
+      );
+      try {
+        setConsolidateResult(await provider.sendRawTransaction(signedTx.tx));
+      } catch (err: any) {
+        setConsolidateResult({ code: "network", message: err.message });
+      }
+      await refresh();
+    } finally {
+      setConsolidateBusy(false);
+    }
+  };
+
   const doSend = async (e: any) => {
     e.preventDefault();
     e.stopPropagation();
@@ -588,6 +662,13 @@ const Popup: React.FC = () => {
                       icon={faExternalLinkAlt}
                     />
                     Export
+                  </Dropdown.Item>
+                  <Dropdown.Item onClick={openConsolidate}>
+                    <FontAwesomeIcon
+                      className="icon"
+                      icon={faCompressArrowsAlt}
+                    />
+                    Consolidate coins
                   </Dropdown.Item>
                   <Dropdown.Item
                     style={{ color: "red" }}
@@ -1059,6 +1140,16 @@ const Popup: React.FC = () => {
                     {signAmountError}
                   </Form.Label>
                 )}
+                {signAmountError?.startsWith("Too many coins") && (
+                  <Button
+                    variant="outline-primary"
+                    size="sm"
+                    className="d-block mt-1"
+                    onClick={openConsolidate}
+                  >
+                    Consolidate coins
+                  </Button>
+                )}
                 <Form.Control
                   placeholder="OP_RETURN text (optional)"
                   className="mt-2"
@@ -1238,6 +1329,138 @@ const Popup: React.FC = () => {
                 Done
               </Button>
             </div>
+          )}
+        </Modal.Body>
+      </Modal>
+
+      <Modal
+        size="lg"
+        aria-labelledby="contained-modal-title-vcenter"
+        centered
+        show={consolidateShow}
+        onHide={() => setConsolidateShow(false)}
+      >
+        <Modal.Header closeButton>
+          <Modal.Title id="contained-modal-title-vcenter">
+            Consolidate coins
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {consolidatePlan === null && consolidateError === null && (
+            <p className="modal-note">Checking your coins…</p>
+          )}
+          {consolidateError !== null && (
+            <Form>
+              <p className="modal-note">{consolidateError}</p>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                onClick={() => setConsolidateShow(false)}
+              >
+                Close
+              </Button>
+            </Form>
+          )}
+          {consolidatePlan !== null && consolidateResult === null && (
+            <Form noValidate onSubmit={doConsolidate}>
+              <p className="modal-note">
+                Every send lists the coins it spends, and one transaction can
+                hold at most {dingocoin.MAX_CONSOLIDATION_INPUTS} coins.
+                Consolidating sends your smallest coins back to this address as
+                one coin, so later sends are smaller, cheaper and can move more
+                at once.
+              </p>
+              <Form.Group className="mb-3">
+                <Form.Label>
+                  <b>Coins merged: </b>
+                  {consolidatePlan.inputs.length} of {consolidatePlan.eligible}
+                </Form.Label>
+                <br />
+                <Form.Label>
+                  <b>Fee: </b>
+                  {satoshiToLocaleString(consolidatePlan.fee)}
+                </Form.Label>
+                <br />
+                <Form.Label>
+                  <b>New coin: </b>
+                  {satoshiToLocaleString(consolidatePlan.amount)}
+                </Form.Label>
+                {consolidatePlan.eligible > consolidatePlan.inputs.length && (
+                  <p className="modal-note">
+                    {consolidatePlan.eligible - consolidatePlan.inputs.length}{" "}
+                    coins will be left. You can consolidate again right after
+                    this to merge more.
+                  </p>
+                )}
+                <Form.Control
+                  type="password"
+                  placeholder="Password"
+                  className="mt-2"
+                  value={consolidatePassword}
+                  onChange={(e) => {
+                    setConsolidatePassword(e.target.value);
+                    setConsolidatePasswordError(null);
+                  }}
+                  ref={consolidatePasswordRef}
+                  isInvalid={consolidatePasswordError !== null}
+                  autoFocus
+                />
+                {consolidatePasswordError && (
+                  <Form.Label className="input-error">
+                    {consolidatePasswordError}
+                  </Form.Label>
+                )}
+              </Form.Group>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                type="submit"
+                disabled={consolidatePassword.length === 0 || consolidateBusy}
+              >
+                {consolidateBusy ? "Consolidating…" : "Consolidate"}
+              </Button>
+            </Form>
+          )}
+          {consolidateResult !== null && (
+            <Form>
+              <Form.Group className="mb-3">
+                {typeof consolidateResult.txid !== "undefined" ? (
+                  <>
+                    <Form.Label>Consolidation sent. TXID:</Form.Label>
+                    <Form.Control
+                      readOnly
+                      as="textarea"
+                      value={consolidateResult.txid}
+                      rows={3}
+                    />
+                    <a
+                      href={`https://explorer.dingocoin.com/tx/${consolidateResult.txid}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View on explorer
+                    </a>
+                  </>
+                ) : (
+                  <Form.Label>
+                    Error sending transaction:
+                    <br />
+                    <b>
+                      <span style={{ color: "red" }}>
+                        ({consolidateResult.code}) {consolidateResult.message}
+                      </span>
+                    </b>
+                  </Form.Label>
+                )}
+              </Form.Group>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                onClick={() => setConsolidateShow(false)}
+              >
+                Close
+              </Button>
+            </Form>
           )}
         </Modal.Body>
       </Modal>
