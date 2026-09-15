@@ -289,7 +289,7 @@ const SignTransaction: React.FC = () => {
               <Button
                 className="mx-2"
                 variant="outline-dark"
-                onClick={() => onEnd(null, "No active account")}
+                onClick={() => onEnd("No active account", null)}
               >
                 Close
               </Button>
@@ -303,7 +303,7 @@ const SignTransaction: React.FC = () => {
                 <Button
                   className="mx-2"
                   variant="outline-dark"
-                  onClick={() => onEnd(null, "No active account")}
+                  onClick={() => onEnd(transactionError, null)}
                 >
                   Close
                 </Button>

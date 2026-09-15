@@ -8,19 +8,49 @@ const promptUser = (api: string, args: any) => {
       ? ""
       : "?" + new URLSearchParams(args).toString());
 
+  // How long to wait, after the request window closes, for an answer it posted
+  // just before closing (Approve and Reject close the window themselves).
+  const CLOSED_WINDOW_GRACE_MS = 1000;
+
   return new Promise((resolve) => {
     const bc_bg_popup = new BroadcastChannel("dingo_bg_popup_" + args.id);
-    bc_bg_popup.addEventListener("message", (msg: any) => {
-      bc_bg_popup.close();
-      resolve(msg.data);
-    });
+    let windowId: number | undefined;
+    let settled = false;
 
-    browser.windows.create({
-      url: browser.runtime.getURL(url),
-      type: "popup",
-      height: 620,
-      width: 580,
-    });
+    // Every request gets exactly one response: the window's answer, or an error
+    // if the user closes the window without answering.
+    const settle = (response: any) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      bc_bg_popup.close();
+      browser.windows.onRemoved.removeListener(onWindowRemoved);
+      resolve(response);
+    };
+    const onWindowRemoved = (removedId: number) => {
+      if (removedId === windowId) {
+        setTimeout(
+          () => settle({ error: "User closed the request window" }),
+          CLOSED_WINDOW_GRACE_MS
+        );
+      }
+    };
+
+    bc_bg_popup.addEventListener("message", (msg: any) => settle(msg.data));
+    browser.windows.onRemoved.addListener(onWindowRemoved);
+
+    browser.windows
+      .create({
+        url: browser.runtime.getURL(url),
+        type: "popup",
+        height: 620,
+        width: 580,
+      })
+      .then((win) => {
+        windowId = win.id;
+      })
+      .catch(() => settle({ error: "Could not open the request window" }));
   });
 };
 

@@ -54,7 +54,14 @@ Messages pass through four contexts:
    - A vout key of `data` means an OP_RETURN payload in hex.
 4. **The `SignData` / `SignTransaction` pages** ask for the account password, sign, and send `{result}` or `{error}` on `BroadcastChannel("dingo_bg_popup_" + id)`. The background is listening on that channel and resolves the original message with the reply.
 
+Every request gets exactly one response, `{result}` or `{error}`. Pages must send failures as `onEnd(errorMessage, null)`, never as a `result`: the NFT platform treats any `result` as success. If the user closes the request window without answering, `promptUser` in `Background/index.ts` resolves `{error: "User closed the request window"}` after a 1s grace period. The grace period lets an Approve or Reject posted just before the window closes win.
+
 When you add a new dApp-facing API method, all four files must change together.
+
+The Dingocoin NFT platform (`dingocoin/dingonft-frontend` and `dingonft-provider`, live at nft.dingocoin.com) is the main consumer of this API:
+- It calls `requestSign(sha256Hex)` and verifies the signature by recovering the public key from the 64-byte r||s signature.
+- It calls `requestSignTransaction` for list, buy, and reprice. Buy and reprice pass the asset's UTXO as a required vin, which its backend signs afterwards.
+- Its backend requires all inputs after `vins[0]` to come from one address, and every output to be ≥ 1 DINGO.
 
 `SignTransaction` treats the vins supplied by the dApp as contributing 0 to the fee or balance. It pulls every UTXO of the active account from the provider and adds them as extra inputs. Change goes back to the active account.
 
