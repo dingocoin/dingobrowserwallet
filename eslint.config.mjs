@@ -59,4 +59,12 @@ export default defineConfig(
       globals: globals.node,
     },
   },
+  {
+    files: ["scripts/**/*.mjs"],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      sourceType: "module",
+      globals: globals.node,
+    },
+  },
 );

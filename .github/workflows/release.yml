@@ -1,0 +1,82 @@
+name: Release
+
+# Run from the Actions tab on master after the version in package.json and
+# source/manifest.json has been bumped. Creates a draft GitHub Release; the tag
+# v<version> is created when the draft is published.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the draft release
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Check the version has not been released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "::error::v$version is already tagged. Bump the version in package.json and source/manifest.json."
+            exit 1
+          fi
+          # Fetch first so an API error fails the job instead of passing the check.
+          releases=$(gh release list --limit 1000 --json tagName --jq '.[].tagName')
+          if grep -qx "v$version" <<< "$releases"; then
+            echo "::error::A release or draft for v$version already exists. Publish or delete it, or bump the version."
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:chrome
+
+      - id: package
+        run: npm run package:release
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          CHROME_ZIP: ${{ steps.package.outputs.chrome_zip }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          cat > release-notes.md <<EOF
+          ## Install
+
+          **Chrome Web Store:** upload \`$CHROME_ZIP\` in the developer dashboard.
+
+          **Manually:** download \`$CHROME_ZIP\`, open \`chrome://extensions\`, turn on **Developer mode** and drag the zip onto the page.
+
+          SHA-256 of \`$CHROME_ZIP\`: \`$SHA256\` (also in \`SHA256SUMS\`; check with \`sha256sum -c SHA256SUMS\`).
+          EOF
+          url=$(gh release create "v$VERSION" \
+            "extension/release/$CHROME_ZIP" extension/release/SHA256SUMS \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "Dingocoin Wallet $VERSION" \
+            --notes "$(cat release-notes.md)" \
+            --generate-notes)
+          {
+            echo "## Draft release v$VERSION"
+            echo ""
+            echo "[$url]($url): review the notes, then **Publish release** to create the tag."
+          } >> "$GITHUB_STEP_SUMMARY"

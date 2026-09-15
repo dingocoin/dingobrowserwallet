@@ -54,7 +54,23 @@ Test builds show as **Dingocoin Wallet (test build)**, with the commit in the ve
 npm run build       # extension/chrome.zip and extension/firefox.xpi
 ```
 
-The version in `source/manifest.json` is replaced at build time with the `version` from `package.json`. To release, bump the version in `package.json` and rebuild.
+The version in `source/manifest.json` is replaced at build time with the `version` from `package.json`.
+
+## Releasing
+
+Official releases are Chrome packages published as GitHub Releases. Test builds are never released.
+
+1. **Bump the version.** Update `version` in both `package.json` and `source/manifest.json`, for example with `npm version 1.0.1 --no-git-tag-version`, then edit the manifest by hand. Merge the change to `master`.
+2. **Run the Release workflow.** Open **Actions → Release → Run workflow** on `master`.
+   - **What it checks:** that the version hasn't been released yet, plus lint, typecheck and tests.
+   - **What it builds:** the Chrome release package, which it also confirms is a release build (no test key) of that version.
+   - **What it creates:** a **draft** release `v<version>` with `dingocoin-wallet-<version>-chrome.zip`, `SHA256SUMS`, install instructions and generated notes.
+3. **Publish.** Review the draft and click **Publish release**, which creates the `v<version>` tag.
+4. **Upload to the store.** Upload the zip to the Chrome Web Store developer dashboard.
+
+To make the same package locally, run `npm run build:chrome && npm run package:release`. It writes to `extension/release/`.
+
+The Firefox build is not released, because Firefox does not support `background.service_worker`, so the background script would never run.
 
 ### Browser-specific manifest keys
 
