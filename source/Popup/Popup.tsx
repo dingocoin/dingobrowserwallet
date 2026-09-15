@@ -614,7 +614,7 @@ const Popup: React.FC = () => {
             <p>Set up your Dingocoin wallet.</p>
             <Button onClick={() => openSetup("create")}>Create new wallet</Button>
             <Button variant="outline-primary" onClick={() => openSetup("restore")}>
-              Restore from recovery phrase
+              Restore from seed phrase
             </Button>
             <Button variant="link" onClick={() => setImportAccountShow(true)}>
               Import a private key
@@ -774,7 +774,7 @@ const Popup: React.FC = () => {
           <Button className="menu-item" onClick={createAccountClicked}>
             <FontAwesomeIcon className="icon" icon={faPlus} />
             <span>
-              {wallet === null ? "Create recovery phrase" : "Create account"}
+              {wallet === null ? "Create seed phrase" : "Create account"}
             </span>
           </Button>
           <Button
@@ -796,13 +796,13 @@ const Popup: React.FC = () => {
               }}
             >
               <FontAwesomeIcon className="icon" icon={faKey} />
-              <span>Show recovery phrase</span>
+              <span>Show seed phrase</span>
             </Button>
           )}
           {wallet === null && (
             <Button className="menu-item" onClick={() => openSetup("restore")}>
               <FontAwesomeIcon className="icon" icon={faUndoAlt} />
-              <span>Restore from recovery phrase</span>
+              <span>Restore from seed phrase</span>
             </Button>
           )}
         </Offcanvas.Body>
@@ -824,9 +824,9 @@ const Popup: React.FC = () => {
         <Modal.Body>
           <Form onSubmit={doCreate} noValidate>
             <p className="modal-note">
-              The new account is the next address from your recovery phrase.
+              The new account is the next address from your seed phrase.
               Unlock it with the wallet password you chose when you set up the
-              recovery phrase.
+              seed phrase.
             </p>
             <Form.Group className="mb-3">
               <Form.Control
@@ -880,7 +880,7 @@ const Popup: React.FC = () => {
         <Modal.Body>
           <Form onSubmit={doImport} noValidate>
             <Alert variant="warning" className="modal-note">
-              Imported keys are not part of your recovery phrase. Keep your own
+              Imported keys are not part of your seed phrase. Keep your own
               backup of this private key.
             </Alert>
             <p className="modal-note">
@@ -1059,14 +1059,14 @@ const Popup: React.FC = () => {
             keyring.isRecoveryPhraseAccount(activeAccount) && (
               <p className="modal-note">
                 This removes the account from the list. It comes from your
-                recovery phrase, so <b>Create account</b> adds it back with the
+                seed phrase, so <b>Create account</b> adds it back with the
                 same address.
               </p>
             )}
           {activeAccount !== null &&
             !keyring.isRecoveryPhraseAccount(activeAccount) && (
               <Alert variant="danger" className="modal-note">
-                This private key is <b>not</b> part of your recovery phrase.
+                This private key is <b>not</b> part of your seed phrase.
                 Export it and keep a backup first, or any Dingocoins in this
                 account will be lost.
               </Alert>
@@ -1298,7 +1298,7 @@ const Popup: React.FC = () => {
       >
         <Modal.Header closeButton>
           <Modal.Title id="contained-modal-title-vcenter">
-            Recovery phrase
+            Seed phrase
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -1331,7 +1331,7 @@ const Popup: React.FC = () => {
                 type="submit"
                 disabled={revealPassword.length === 0 || revealBusy}
               >
-                {revealBusy ? "Unlocking…" : "Show recovery phrase"}
+                {revealBusy ? "Unlocking…" : "Show seed phrase"}
               </Button>
             </Form>
           )}

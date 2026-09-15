@@ -7,7 +7,7 @@ import keyring from "../accounts";
 export const accountKindLabel = (account: any) => {
   switch (keyring.accountType(account)) {
     case "hd":
-      return "Recovery phrase";
+      return "Seed phrase";
     case "key":
       return "Imported key";
     default:
@@ -29,7 +29,7 @@ export const passwordPlaceholder = (account: any) => {
 export const groupAccounts = (accounts: any[]) =>
   [
     {
-      title: "Recovery phrase",
+      title: "Seed phrase",
       accounts: accounts.filter(keyring.isRecoveryPhraseAccount),
     },
     {
