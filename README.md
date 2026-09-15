@@ -70,7 +70,7 @@ Official releases are Chrome packages published as GitHub Releases. Test builds 
 
 To make the same package locally, run `npm run build:chrome && npm run package:release`. It writes to `extension/release/`.
 
-The Firefox build is not released, because Firefox does not support `background.service_worker`, so the background script would never run.
+The Firefox build (`extension/firefox.xpi`) works as a temporary add-on for testing. Go to `about:debugging` → **Load Temporary Add-on** and pick the xpi or `extension/firefox/manifest.json`. It is not part of official releases yet, because a permanent Firefox install requires signing by Mozilla (addons.mozilla.org).
 
 ### Browser-specific manifest keys
 
