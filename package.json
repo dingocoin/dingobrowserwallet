@@ -5,8 +5,8 @@
   "private": true,
   "author": {
     "name": "The Dingocoin Project",
-    "email": "admin@dingocoin.org",
-    "url": "https://www.dingocoin.org"
+    "email": "admin@dingocoin.com",
+    "url": "https://dingocoin.com"
   },
   "license": "MIT",
   "engines": {
