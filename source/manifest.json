@@ -10,7 +10,7 @@
     "128": "assets/icons/favicon-128.png"
   },
   "description": "A Dingocoin wallet in your browser",
-  "homepage_url": "https://dingocoin.org",
+  "homepage_url": "https://dingocoin.com",
   "short_name": "Dingocoin Wallet",
 
   "permissions": [
