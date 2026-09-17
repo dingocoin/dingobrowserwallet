@@ -44,6 +44,7 @@ node --test --test-name-pattern="signs a transaction" test/dingocoin.test.js   #
 ### Build entry points (`webpack.config.js`)
 - `background`: `source/Background/index.ts`, the MV3 service worker.
 - `popup`, `signData`, `signTransaction`, `setup`: one React page each, in `source/<Name>/index.tsx`. Each has an HTML template in `views/<name>.html` that HtmlWebpackPlugin fills in.
+- User-facing text calls the recovery phrase a **seed phrase**. Code names and these notes still say recovery phrase.
 - `setup` is the recovery phrase flow (create with a 3-word backup check, or restore). The popup opens it in a full tab with `browser.tabs.create("setup.html?mode=create|restore")`, because the toolbar popup closes when it loses focus. Nothing is saved until the flow completes, and it never overwrites an existing `wallet`.
 - `source/assets/` is **copied verbatim, not bundled**. `assets/js/contentScript.js` and `assets/js/dingoApi.js` can't use imports. `contentScript.js` depends on `browser-polyfill.js`, which is copied from `node_modules` and loaded first through the manifest.
 

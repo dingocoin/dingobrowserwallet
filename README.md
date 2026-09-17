@@ -10,7 +10,7 @@ Web pages can call the wallet through `window.dingo`:
 
 The user approves every signing request in a popup window.
 
-New wallets use a 12-word recovery phrase (BIP39). Accounts derive at `m/44'/3'/0'/0/<index>`, the same path as Dingocoin's [BIP39 tool](https://github.com/dingocoin/bip39). Private keys (WIF) can still be imported, and accounts created by earlier versions keep working.
+New wallets use a 12-word seed phrase (BIP39). Accounts derive at `m/44'/3'/0'/0/<index>`, the same path as Dingocoin's [BIP39 tool](https://github.com/dingocoin/bip39). Private keys (WIF) can still be imported, and accounts created by earlier versions keep working.
 
 ## Requirements
 

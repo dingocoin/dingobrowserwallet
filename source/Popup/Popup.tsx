@@ -37,6 +37,11 @@ import {
   BackupInstructions,
   PhraseGrid,
 } from "../components/RecoveryPhrase";
+import {
+  accountKindLabel,
+  groupAccounts,
+  passwordPlaceholder,
+} from "../components/accountKind";
 
 import "./styles.scss";
 import DingocoinLogo from "../assets/img/dingocoin.png";
@@ -609,7 +614,7 @@ const Popup: React.FC = () => {
             <p>Set up your Dingocoin wallet.</p>
             <Button onClick={() => openSetup("create")}>Create new wallet</Button>
             <Button variant="outline-primary" onClick={() => openSetup("restore")}>
-              Restore from recovery phrase
+              Restore from seed phrase
             </Button>
             <Button variant="link" onClick={() => setImportAccountShow(true)}>
               Import a private key
@@ -645,6 +650,9 @@ const Popup: React.FC = () => {
                   <b>{activeAccount.address}</b>
                 </div>
               </OverlayTrigger>
+              <div className="account-kind">
+                {accountKindLabel(activeAccount)}
+              </div>
             </Col>
             <Col xs={2}>
               <Dropdown className="account-options">
@@ -738,32 +746,36 @@ const Popup: React.FC = () => {
       >
         <Offcanvas.Body>
           {accounts !== null &&
-            accounts.map((x: any, i: any) => {
-              const name =
-                (x.label === "" ? x.address : `${x.label} (${x.address})`) +
-                (wallet !== null && !keyring.isRecoveryPhraseAccount(x)
-                  ? " · imported"
-                  : "");
-              return (
-                <Button
-                  className="menu-item account"
-                  onClick={() => switchAccount(x)}
-                  key={i}
-                >
-                  {x !== activeAccount && <span>{name}</span>}
-                  {x === activeAccount && (
-                    <span>
-                      <FontAwesomeIcon className="icon" icon={faAngleRight} />
-                      <b>{name}</b>
-                    </span>
-                  )}
-                </Button>
-              );
-            })}
+            groupAccounts(accounts).map((group) => (
+              <React.Fragment key={group.title}>
+                <div className="menu-heading">{group.title}</div>
+                {group.accounts.map((x: any) => {
+                  const name =
+                    x.label === "" ? x.address : `${x.label} (${x.address})`;
+                  return (
+                    <Button
+                      className="menu-item account"
+                      onClick={() => switchAccount(x)}
+                      key={x.address}
+                    >
+                      {x !== activeAccount && <span>{name}</span>}
+                      {x === activeAccount && (
+                        <span>
+                          <FontAwesomeIcon className="icon" icon={faAngleRight} />
+                          <b>{name}</b>
+                        </span>
+                      )}
+                    </Button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
           <hr />
           <Button className="menu-item" onClick={createAccountClicked}>
             <FontAwesomeIcon className="icon" icon={faPlus} />
-            <span>Create account</span>
+            <span>
+              {wallet === null ? "Create seed phrase" : "Create account"}
+            </span>
           </Button>
           <Button
             className="menu-item"
@@ -784,13 +796,13 @@ const Popup: React.FC = () => {
               }}
             >
               <FontAwesomeIcon className="icon" icon={faKey} />
-              <span>Show recovery phrase</span>
+              <span>Show seed phrase</span>
             </Button>
           )}
           {wallet === null && (
             <Button className="menu-item" onClick={() => openSetup("restore")}>
               <FontAwesomeIcon className="icon" icon={faUndoAlt} />
-              <span>Restore from recovery phrase</span>
+              <span>Restore from seed phrase</span>
             </Button>
           )}
         </Offcanvas.Body>
@@ -812,7 +824,9 @@ const Popup: React.FC = () => {
         <Modal.Body>
           <Form onSubmit={doCreate} noValidate>
             <p className="modal-note">
-              The new account comes from your recovery phrase.
+              The new account is the next address from your seed phrase.
+              Unlock it with the wallet password you chose when you set up the
+              seed phrase.
             </p>
             <Form.Group className="mb-3">
               <Form.Control
@@ -866,9 +880,13 @@ const Popup: React.FC = () => {
         <Modal.Body>
           <Form onSubmit={doImport} noValidate>
             <Alert variant="warning" className="modal-note">
-              Imported keys are not part of your recovery phrase. Keep your own
+              Imported keys are not part of your seed phrase. Keep your own
               backup of this private key.
             </Alert>
+            <p className="modal-note">
+              The key gets its own password, separate from your wallet
+              password.
+            </p>
             <Form.Group className="mb-3">
               <Form.Control
                 placeholder="Label (optional)"
@@ -893,7 +911,7 @@ const Popup: React.FC = () => {
               )}
               <Form.Control
                 type="password"
-                placeholder="New password (min. 8 char.)"
+                placeholder="New key password (min. 8 char.)"
                 className="mt-2"
                 value={importAccountPassword}
                 onChange={(e) => setImportAccountPassword(e.target.value)}
@@ -982,7 +1000,7 @@ const Popup: React.FC = () => {
               <Form.Group className="mb-3">
                 <Form.Control
                   type="password"
-                  placeholder="Password"
+                  placeholder={passwordPlaceholder(activeAccount)}
                   value={exportPassword}
                   onChange={(e) => setExportPassword(e.target.value)}
                   ref={exportPasswordRef}
@@ -1041,14 +1059,14 @@ const Popup: React.FC = () => {
             keyring.isRecoveryPhraseAccount(activeAccount) && (
               <p className="modal-note">
                 This removes the account from the list. It comes from your
-                recovery phrase, so <b>Create account</b> adds it back with the
+                seed phrase, so <b>Create account</b> adds it back with the
                 same address.
               </p>
             )}
           {activeAccount !== null &&
             !keyring.isRecoveryPhraseAccount(activeAccount) && (
               <Alert variant="danger" className="modal-note">
-                This private key is <b>not</b> part of your recovery phrase.
+                This private key is <b>not</b> part of your seed phrase.
                 Export it and keep a backup first, or any Dingocoins in this
                 account will be lost.
               </Alert>
@@ -1165,7 +1183,7 @@ const Popup: React.FC = () => {
                   </Form.Label>
                 )}
                 <Form.Control
-                  placeholder="Password"
+                  placeholder={passwordPlaceholder(activeAccount)}
                   className="mt-2"
                   type="password"
                   value={signPassword}
@@ -1280,7 +1298,7 @@ const Popup: React.FC = () => {
       >
         <Modal.Header closeButton>
           <Modal.Title id="contained-modal-title-vcenter">
-            Recovery phrase
+            Seed phrase
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -1313,7 +1331,7 @@ const Popup: React.FC = () => {
                 type="submit"
                 disabled={revealPassword.length === 0 || revealBusy}
               >
-                {revealBusy ? "Unlocking…" : "Show recovery phrase"}
+                {revealBusy ? "Unlocking…" : "Show seed phrase"}
               </Button>
             </Form>
           )}
@@ -1394,7 +1412,7 @@ const Popup: React.FC = () => {
                 )}
                 <Form.Control
                   type="password"
-                  placeholder="Password"
+                  placeholder={passwordPlaceholder(activeAccount)}
                   className="mt-2"
                   value={consolidatePassword}
                   onChange={(e) => {

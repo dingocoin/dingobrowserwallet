@@ -5,6 +5,7 @@ import browser from "webextension-polyfill";
 import "./styles.scss";
 import dingocoin from "../dingocoin";
 import keyring from "../accounts";
+import { passwordPlaceholder } from "../components/accountKind";
 
 const SignData: React.FC = () => {
   const [id, setId] = React.useState(null);
@@ -133,7 +134,7 @@ const SignData: React.FC = () => {
             <Form noValidate onSubmit={onApprove}>
               <Form.Group className="mb-3">
                 <Form.Control
-                  placeholder="Password"
+                  placeholder={passwordPlaceholder(account)}
                   className="mt-2 mb-2"
                   type="password"
                   value={signPassword}

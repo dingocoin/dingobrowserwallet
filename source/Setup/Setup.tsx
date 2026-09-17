@@ -182,8 +182,9 @@ const Setup: React.FC = () => {
   const passwordForm = (onSubmit: (e: any) => void, submitLabel: string) => (
     <Form noValidate onSubmit={onSubmit}>
       <p>
-        This password unlocks your wallet in this browser. You&apos;ll need it
-        to send Dingocoins, add accounts and view your recovery phrase.
+        This is your <b>wallet password</b>. It unlocks your wallet in this
+        browser, and you&apos;ll need it to send Dingocoins, add accounts and
+        view your seed phrase.
       </p>
       <Form.Control
         type="password"
@@ -233,11 +234,11 @@ const Setup: React.FC = () => {
 
         {step === "exists" && (
           <div>
-            <h1>Recovery phrase already set up</h1>
+            <h1>Seed phrase already set up</h1>
             <p>
-              This wallet already has a recovery phrase. To see it, open the
+              This wallet already has a seed phrase. To see it, open the
               Dingocoin Wallet from the browser toolbar and choose{" "}
-              <b>Show recovery phrase</b> in the menu.
+              <b>Show seed phrase</b> in the menu.
             </p>
             <div className="actions">
               <Button onClick={() => window.close()}>Close</Button>
@@ -251,7 +252,7 @@ const Setup: React.FC = () => {
             <div className="actions stacked">
               <Button onClick={startCreate}>Create a new wallet</Button>
               <Button variant="outline-dark" onClick={startRestore}>
-                Restore from a recovery phrase
+                Restore from a seed phrase
               </Button>
             </div>
           </div>
@@ -259,13 +260,13 @@ const Setup: React.FC = () => {
 
         {step === "create-intro" && (
           <div>
-            <h1>Your recovery phrase</h1>
+            <h1>Your seed phrase</h1>
             <p>
-              Your wallet is created from a <b>12-word recovery phrase</b>.
+              Your wallet is created from a <b>12-word seed phrase</b>.
               Every account you create in this wallet comes from it.
             </p>
             <p>
-              The recovery phrase is the only way to restore your wallet and
+              The seed phrase is the only way to restore your wallet and
               funds if you lose this computer, remove the extension or forget
               your password. Anyone who has it can take your Dingocoins.
             </p>
@@ -289,7 +290,7 @@ const Setup: React.FC = () => {
 
         {step === "create-show" && (
           <div>
-            <h1>Write down your recovery phrase</h1>
+            <h1>Write down your seed phrase</h1>
             <div
               className={`phrase-box${revealed ? "" : " concealed"}`}
               onClick={() => setRevealed(true)}
@@ -319,7 +320,7 @@ const Setup: React.FC = () => {
 
         {step === "create-verify" && (
           <div>
-            <h1>Confirm your recovery phrase</h1>
+            <h1>Confirm your seed phrase</h1>
             <p>Enter these words from your written copy.</p>
             <Form noValidate onSubmit={submitVerify}>
               {verifyPositions.map((position, i) => (
@@ -355,9 +356,9 @@ const Setup: React.FC = () => {
 
         {step === "restore-phrase" && (
           <div>
-            <h1>Restore from a recovery phrase</h1>
+            <h1>Restore from a seed phrase</h1>
             <p>
-              Enter your 12 to 24-word recovery phrase, with a space between
+              Enter your 12 to 24-word seed phrase, with a space between
               each word.
             </p>
             <Form noValidate onSubmit={submitRestorePhrase}>
@@ -365,7 +366,7 @@ const Setup: React.FC = () => {
                 {...secretInputProps}
                 as="textarea"
                 rows={4}
-                placeholder="Recovery phrase"
+                placeholder="Seed phrase"
                 value={restoreInput}
                 onChange={(e) => setRestoreInput(e.target.value)}
                 isInvalid={restoreError !== null}
@@ -407,10 +408,11 @@ const Setup: React.FC = () => {
             </p>
             {hasImportedAccounts && (
               <Alert variant="warning" className="note">
-                Accounts you added from a private key are still in your wallet,
-                but they are <b>not</b> part of this recovery phrase. Keep a
-                backup of each of their private keys (<b>Export</b> in the
-                account menu).
+                Your legacy accounts and imported keys are still in your
+                wallet, under <b>Legacy &amp; imported keys</b>, but they are{" "}
+                <b>not</b> part of this seed phrase. Each keeps its own
+                password. Keep a backup of each of their private keys (
+                <b>Export</b> in the account menu).
               </Alert>
             )}
             <div className="actions">
