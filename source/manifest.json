@@ -42,7 +42,7 @@
 
   "__firefox__browser_specific_settings": {
     "gecko": {
-      "id": "{186b9e06-824a-402c-b652-897f3304f5d5}",
+      "id": "{511034e7-634f-47bd-a15d-d47adfa28c55}",
       "strict_min_version": "109.0",
       "data_collection_permissions": {
         "required": ["financialAndPaymentInfo"]
