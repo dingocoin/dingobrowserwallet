@@ -83,6 +83,59 @@ The Firefox build (`extension/firefox.xpi`) works as a temporary add-on for test
 }
 ```
 
+## Building from source (for Mozilla Add-ons reviewers)
+
+This add-on ships bundled and minified code, so Mozilla requires the sources
+and instructions that reproduce the uploaded files. Everything needed is in
+this archive; `BUILD-INFO.txt` names the exact commit it was made from.
+
+**Environment.** Any OS with [Node.js](https://nodejs.org) 24 (`.nvmrc` pins
+the major; `package.json` requires >= 24.11.0) and the bundled npm. This
+matches the default AMO reviewer image (Ubuntu 24.04, Node 24, npm 11), so no
+special setup is needed. No other tools, no global installs, and nothing
+web-based.
+
+**Build.**
+
+```bash
+npm ci                  # installs exactly the versions in package-lock.json
+npm run build:firefox
+```
+
+**Output.** `extension/firefox/` is the unpacked add-on and
+`extension/firefox.xpi` is the packaged one. The xpi is what was uploaded.
+
+**Toolchain.** [webpack](https://webpack.js.org) bundles the five entry points
+(`background`, `popup`, `signData`, `signTransaction`, `setup`);
+[Babel](https://babeljs.io) transpiles TypeScript and JSX;
+[Terser](https://terser.org) and
+[cssnano](https://cssnano.github.io/cssnano/) minify;
+[sass](https://sass-lang.com) compiles the SCSS;
+`html-webpack-plugin` fills the templates in `views/`; and
+[`wext-manifest-loader`](https://github.com/abhijithvijayan/wext-manifest-loader)
+turns `source/manifest.json` into a per-browser manifest, dropping the
+`__chrome__`/`__firefox__` key prefixes and taking `version` from
+`package.json`. All of it is open source and configured in
+`webpack.config.js`. No obfuscation is used.
+
+**Dependencies.** `npm ci` fetches everything from the npm registry, with one
+exception: `bitcoinjs-lib` is a fork pinned to an immutable commit,
+`git+https://github.com/rkbling/bitcoinjs-lib.git#001c194c4ab8373aa893e04bba7091f2bc471ca4`.
+It is public and npm clones it over HTTPS during the install, so no
+credentials are needed. The fork changes two files against upstream 6.0.1,
+`src/bufferutils.js` and `src/types.js`, to read and write 64-bit satoshi
+amounts as `BigInt`. Upstream caps amounts at Bitcoin's 21 million coins and
+at `2^53 - 1`, which cannot represent Dingocoin's supply. No cryptographic
+code is changed. `npm ls bitcoinjs-lib` shows the pinned commit, and
+`diff -r` against `bitcoinjs-lib@6.0.1` from the registry shows the two
+files.
+
+**Checks.** `npm run lint`, `npm run typecheck`, and `npm test` all pass.
+`npm run lint:firefox` runs Mozilla's addons-linter and reports 0 errors.
+
+**Reproducing the archive.** `npm run package:source` rebuilds it from the
+tracked files at HEAD.
+
 ## License
 
 MIT © The Dingocoin Project. See [LICENCE](LICENCE).
