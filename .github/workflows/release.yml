@@ -48,9 +48,33 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build:chrome
+      - run: npm run build:firefox
+
+      # The Firefox xpi is submitted to AMO, so hold the release to the same
+      # bar Mozilla applies.
+      - run: npm run lint:firefox
 
       - id: package
         run: npm run package:release
+
+      # AMO requires the sources for every version, because the add-on ships
+      # bundled and minified code. Building the archive here keeps it matched
+      # to the released commit: `npm run package:source` archives HEAD.
+      - id: source
+        run: npm run package:source
+
+      - name: Collect the Firefox files
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          SOURCE_ZIP: ${{ steps.source.outputs.source_zip }}
+        run: |
+          xpi="dingocoin-wallet-$VERSION-firefox.xpi"
+          cp extension/firefox.xpi "extension/release/$xpi"
+          cp "extension/source/$SOURCE_ZIP" "extension/release/$SOURCE_ZIP"
+          cd extension/release
+          sha256sum "$xpi" "$SOURCE_ZIP" >> SHA256SUMS
+          echo "xpi=$xpi" >> "$GITHUB_OUTPUT"
+        id: firefox
 
       - name: Create draft release
         env:
@@ -58,6 +82,9 @@ jobs:
           VERSION: ${{ steps.package.outputs.version }}
           CHROME_ZIP: ${{ steps.package.outputs.chrome_zip }}
           SHA256: ${{ steps.package.outputs.sha256 }}
+          XPI: ${{ steps.firefox.outputs.xpi }}
+          SOURCE_ZIP: ${{ steps.source.outputs.source_zip }}
+          SOURCE_SHA256: ${{ steps.source.outputs.sha256 }}
         run: |
           cat > release-notes.md <<EOF
           ## Install
@@ -67,9 +94,29 @@ jobs:
           **Manually:** download \`$CHROME_ZIP\`, open \`chrome://extensions\`, turn on **Developer mode** and drag the zip onto the page.
 
           SHA-256 of \`$CHROME_ZIP\`: \`$SHA256\` (also in \`SHA256SUMS\`; check with \`sha256sum -c SHA256SUMS\`).
+
+          ## Firefox (addons.mozilla.org)
+
+          Upload \`$XPI\` as a new version, and attach \`$SOURCE_ZIP\` in the
+          **source code** field: AMO requires the sources because the add-on ships
+          bundled and minified code. Paste the text from
+          \`.github/AMO_REVIEWER_NOTES.md\` into **Notes to Reviewers**.
+
+          \`$SOURCE_ZIP\` archives this commit, so \`npm ci && npm run build:firefox\`
+          reproduces every file inside \`$XPI\` byte for byte. Compare the contents,
+          not the xpi's own checksum: the zip container records timestamps, so it
+          differs between builds even when the code is identical.
+
+          SHA-256 of \`$SOURCE_ZIP\`: \`$SOURCE_SHA256\`.
+
+          The xpi is unsigned, so it installs only as a temporary add-on until
+          Mozilla signs it.
           EOF
           url=$(gh release create "v$VERSION" \
-            "extension/release/$CHROME_ZIP" extension/release/SHA256SUMS \
+            "extension/release/$CHROME_ZIP" \
+            "extension/release/$XPI" \
+            "extension/release/$SOURCE_ZIP" \
+            extension/release/SHA256SUMS \
             --draft \
             --target "$GITHUB_SHA" \
             --title "Dingocoin Wallet $VERSION" \
