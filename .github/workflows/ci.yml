@@ -33,6 +33,9 @@ jobs:
       - run: npm run build
       # Mozilla's linter catches manifest keys Firefox rejects (errors fail the job).
       - run: npm run lint:firefox
+      # Every AMO submission needs this archive, so catch a broken script here
+      # rather than on release day.
+      - run: npm run package:source
       - run: npm run build:chrome:test
 
       - name: Name build files

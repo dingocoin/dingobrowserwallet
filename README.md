@@ -105,6 +105,12 @@ npm run build:firefox
 **Output.** `extension/firefox/` is the unpacked add-on and
 `extension/firefox.xpi` is the packaged one. The xpi is what was uploaded.
 
+**Reproducibility.** Building this archive in a clean container with an empty
+npm cache reproduces every file in `extension/firefox/` byte for byte. Compare
+the contents rather than the xpi's own checksum: the zip container records
+timestamps, so the packaged file differs between builds even when every file
+inside it is identical.
+
 **Toolchain.** [webpack](https://webpack.js.org) bundles the five entry points
 (`background`, `popup`, `signData`, `signTransaction`, `setup`);
 [Babel](https://babeljs.io) transpiles TypeScript and JSX;

@@ -16,6 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  appendFileSync,
   mkdirSync,
   readFileSync,
   rmSync,
@@ -123,3 +124,10 @@ console.log(`  commit  ${commit}`);
 console.log(`  files   ${listing.length}`);
 console.log(`  size    ${mb} MB (AMO allows up to 200 MB)`);
 console.log(`  sha256  ${sha256}`);
+
+if (process.env.GITHUB_OUTPUT) {
+  appendFileSync(
+    process.env.GITHUB_OUTPUT,
+    `version=${version}\nsource_zip=${zipName}\nsha256=${sha256}\ncommit=${commit}\n`,
+  );
+}
