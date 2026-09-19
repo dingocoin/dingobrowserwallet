@@ -1,12 +1,12 @@
 {
   "name": "dingocoin-browser-extension-wallet",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Dingocoin wallet in your browser",
   "private": true,
   "author": {
     "name": "The Dingocoin Project",
-    "email": "admin@dingocoin.org",
-    "url": "https://www.dingocoin.org"
+    "email": "admin@dingocoin.com",
+    "url": "https://dingocoin.com"
   },
   "license": "MIT",
   "engines": {
@@ -25,6 +25,7 @@
     "build": "npm run build:chrome && npm run build:firefox",
     "build:chrome:test": "webpack --config-node-env=production --env browser=chrome --env testBuild",
     "package:release": "node scripts/package-release.mjs",
+    "package:source": "node scripts/package-source.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

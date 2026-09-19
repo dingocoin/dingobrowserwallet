@@ -208,28 +208,24 @@ module.exports = (env = {}) => {
         template: path.join(viewsPath, "popup.html"),
         inject: "body",
         chunks: ["popup"],
-        hash: true,
         filename: "popup.html",
       }),
       new HtmlWebpackPlugin({
         template: path.join(viewsPath, "signData.html"),
         inject: "body",
         chunks: ["signData"],
-        hash: true,
         filename: "signData.html",
       }),
       new HtmlWebpackPlugin({
         template: path.join(viewsPath, "signTransaction.html"),
         inject: "body",
         chunks: ["signTransaction"],
-        hash: true,
         filename: "signTransaction.html",
       }),
       new HtmlWebpackPlugin({
         template: path.join(viewsPath, "setup.html"),
         inject: "body",
         chunks: ["setup"],
-        hash: true,
         filename: "setup.html",
       }),
       // write css file(s) to build folder

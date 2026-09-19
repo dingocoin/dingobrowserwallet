@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dingocoin Wallet",
-  "version": "1.0.0",
+  "version": "1.0.1",
 
   "icons": {
     "16": "assets/icons/favicon-16.png",
@@ -10,7 +10,7 @@
     "128": "assets/icons/favicon-128.png"
   },
   "description": "A Dingocoin wallet in your browser",
-  "homepage_url": "https://dingocoin.org",
+  "homepage_url": "https://dingocoin.com",
   "short_name": "Dingocoin Wallet",
 
   "permissions": [
