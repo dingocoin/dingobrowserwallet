@@ -58,19 +58,42 @@ The version in `source/manifest.json` is replaced at build time with the `versio
 
 ## Releasing
 
-Official releases are Chrome packages published as GitHub Releases. Test builds are never released.
+A release is a GitHub Release carrying the Chrome package, the Firefox xpi and
+the source archive Mozilla requires. Test builds are never released.
 
-1. **Bump the version.** Update `version` in both `package.json` and `source/manifest.json`, for example with `npm version 1.0.1 --no-git-tag-version`, then edit the manifest by hand. Merge the change to `master`.
-2. **Run the Release workflow.** Open **Actions → Release → Run workflow** on `master`.
-   - **What it checks:** that the version hasn't been released yet, plus lint, typecheck and tests.
-   - **What it builds:** the Chrome release package, which it also confirms is a release build (no test key) of that version.
-   - **What it creates:** a **draft** release `v<version>` with `dingocoin-wallet-<version>-chrome.zip`, `SHA256SUMS`, install instructions and generated notes.
-3. **Publish.** Review the draft and click **Publish release**, which creates the `v<version>` tag.
-4. **Upload to the store.** Upload the zip to the Chrome Web Store developer dashboard.
+1. **Keep the release notes current.** Add user-facing changes to
+   `doc/release-notes.md` in the same pull request as the change, so nothing has
+   to be reconstructed from the log later.
+2. **Open the notes for the version.** Move `doc/release-notes.md` to
+   `doc/release-notes/release-notes-<version>.md` and put the template back. The
+   workflow refuses to release a version whose notes are missing or empty.
+3. **Bump the version.** Update `version` in both `package.json` and
+   `source/manifest.json`, for example with `npm version <version>
+   --no-git-tag-version`, then edit the manifest by hand. Merge the notes and the
+   bump to `master`.
+4. **Run the Release workflow.** Open **Actions → Release → Run workflow** on
+   `master`.
+   - **What it checks:** the notes exist, the version is not already released,
+     then lint, typecheck, tests and Mozilla's addons-linter.
+   - **What it builds:** the Chrome package, which it confirms is a release build
+     (no test key) of that version; the Firefox xpi; and the source archive for
+     that same commit.
+   - **What it creates:** a **draft** release `v<version>` whose body is your
+     notes followed by generated install and checksum sections. The store upload
+     steps go to the workflow run's summary, not to the public release page.
+5. **Publish.** Review the draft and click **Publish release**, which creates the
+   `v<version>` tag.
+6. **Upload to the stores.** Follow the steps in the run summary: the Chrome zip
+   to the Web Store dashboard, and the xpi with its source archive to
+   addons.mozilla.org.
 
-To make the same package locally, run `npm run build:chrome && npm run package:release`. It writes to `extension/release/`.
+To make the same files locally, run `npm run build:chrome && npm run
+package:release` and `npm run build:firefox && npm run package:source`. Both
+write to `extension/`.
 
-The Firefox build (`extension/firefox.xpi`) works as a temporary add-on for testing. Go to `about:debugging` → **Load Temporary Add-on** and pick the xpi or `extension/firefox/manifest.json`. It is not part of official releases yet, because a permanent Firefox install requires signing by Mozilla (addons.mozilla.org).
+A permanent Firefox install needs Mozilla's signature, so the attached xpi loads
+only as a temporary add-on: `about:debugging` → **Load Temporary Add-on**, then
+pick the xpi or `extension/firefox/manifest.json`.
 
 ### Browser-specific manifest keys
 
