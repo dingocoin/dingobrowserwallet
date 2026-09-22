@@ -27,11 +27,17 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Check the version has not been released
+      - name: Check the version has not been released, and has notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
+          # Fail here rather than after the build: both checks take a second.
+          notes="doc/release-notes/release-notes-$version.md"
+          if [ ! -s "$notes" ]; then
+            echo "::error::$notes is missing or empty. Move doc/release-notes.md there and describe what changed for users."
+            exit 1
+          fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
             echo "::error::v$version is already tagged. Bump the version in package.json and source/manifest.json."
             exit 1
@@ -81,37 +87,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.package.outputs.version }}
           CHROME_ZIP: ${{ steps.package.outputs.chrome_zip }}
-          SHA256: ${{ steps.package.outputs.sha256 }}
           XPI: ${{ steps.firefox.outputs.xpi }}
           SOURCE_ZIP: ${{ steps.source.outputs.source_zip }}
           SOURCE_SHA256: ${{ steps.source.outputs.sha256 }}
         run: |
-          cat > release-notes.md <<EOF
-          ## Install
-
-          **Chrome Web Store:** upload \`$CHROME_ZIP\` in the developer dashboard.
-
-          **Manually:** download \`$CHROME_ZIP\`, open \`chrome://extensions\`, turn on **Developer mode** and drag the zip onto the page.
-
-          SHA-256 of \`$CHROME_ZIP\`: \`$SHA256\` (also in \`SHA256SUMS\`; check with \`sha256sum -c SHA256SUMS\`).
-
-          ## Firefox (addons.mozilla.org)
-
-          Upload \`$XPI\` as a new version, and attach \`$SOURCE_ZIP\` in the
-          **source code** field: AMO requires the sources because the add-on ships
-          bundled and minified code. Paste the text from
-          \`.github/AMO_REVIEWER_NOTES.md\` into **Notes to Reviewers**.
-
-          \`$SOURCE_ZIP\` archives this commit, so \`npm ci && npm run build:firefox\`
-          reproduces every file inside \`$XPI\` byte for byte. Compare the contents,
-          not the xpi's own checksum: the zip container records timestamps, so it
-          differs between builds even when the code is identical.
-
-          SHA-256 of \`$SOURCE_ZIP\`: \`$SOURCE_SHA256\`.
-
-          The xpi is unsigned, so it installs only as a temporary add-on until
-          Mozilla signs it.
-          EOF
+          # The release page is for users: the hand-written notes from the
+          # repository, how to install, and how to verify. Maintainer steps go to
+          # the job summary instead, where users never see them. No
+          # --generate-notes: the notes are written by hand and reviewed.
+          {
+            cat "doc/release-notes/release-notes-$VERSION.md"
+            echo
+            echo "## Install"
+            echo
+            echo "**Chrome:** download \`$CHROME_ZIP\`, open \`chrome://extensions\`, turn on **Developer mode**, and drag the zip onto the page."
+            echo
+            echo "**Firefox:** install from [addons.mozilla.org](https://addons.mozilla.org/addon/dingocoin-wallet/) once Mozilla has signed this version. The attached \`$XPI\` is unsigned, so it loads only as a temporary add-on."
+            echo
+            echo "## Verify"
+            echo
+            echo '```'
+            cat extension/release/SHA256SUMS
+            echo '```'
+            echo
+            echo "Check with \`sha256sum -c SHA256SUMS\`."
+          } > release-body.md
           url=$(gh release create "v$VERSION" \
             "extension/release/$CHROME_ZIP" \
             "extension/release/$XPI" \
@@ -120,10 +120,17 @@ jobs:
             --draft \
             --target "$GITHUB_SHA" \
             --title "Dingocoin Wallet $VERSION" \
-            --notes "$(cat release-notes.md)" \
-            --generate-notes)
+            --notes-file release-body.md)
           {
             echo "## Draft release v$VERSION"
             echo ""
-            echo "[$url]($url): review the notes, then **Publish release** to create the tag."
+            echo "[$url]($url): review it, then **Publish release** to create the tag."
+            echo ""
+            echo "### Then upload to the stores"
+            echo ""
+            echo "**Chrome Web Store:** upload \`$CHROME_ZIP\` in the developer dashboard."
+            echo ""
+            echo "**addons.mozilla.org:** upload \`$XPI\` as a new version, attach \`$SOURCE_ZIP\` in the **source code** field, and paste \`.github/AMO_REVIEWER_NOTES.md\` into **Notes to Reviewers**. AMO requires the sources because the add-on ships bundled and minified code, and the archive has to be the one built alongside this xpi."
+            echo ""
+            echo "SHA-256 \`$SOURCE_ZIP\`: \`$SOURCE_SHA256\`"
           } >> "$GITHUB_STEP_SUMMARY"
