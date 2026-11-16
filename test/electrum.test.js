@@ -214,6 +214,26 @@ describe("provider", () => {
     });
   });
 
+  it("lists an address's history, including emptied addresses", async () => {
+    const { FakeWebSocket } = fakeNetwork({
+      "wss://a": dingocoinServer({
+        "blockchain.scripthash.get_history": ([hash]) => {
+          assert.equal(hash, scripthash);
+          return [
+            { tx_hash: "cd".repeat(32), height: 120 },
+            { tx_hash: "ef".repeat(32), height: 0, fee: 100000000 },
+          ];
+        },
+      }),
+    });
+    const client = new ElectrumClient({ servers: ["wss://a"], WebSocketImpl: FakeWebSocket });
+    const provider = createProvider(() => client);
+    assert.deepEqual(await provider.getHistory(address), [
+      { txid: "cd".repeat(32), height: 120 },
+      { txid: "ef".repeat(32), height: 0 },
+    ]);
+  });
+
   it("leaves out coinbase outputs that are not yet mature", async () => {
     const txid = (label) => crypto.createHash("sha256").update(label).digest("hex");
     const tip = 1000;

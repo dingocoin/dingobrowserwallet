@@ -60,6 +60,17 @@ const createProvider = (getClient) => {
     };
   };
 
+  // Transactions that touch the address, confirmed and in the mempool, as
+  // [{ txid, height }]. An address that received coins and spent them all
+  // has history but no outputs, so this is how a wallet scan tells used
+  // addresses from unused ones.
+  const getHistory = async (address) => {
+    const history = await request("blockchain.scripthash.get_history", [
+      dingocoin.electrumScriptHash(address),
+    ]);
+    return history.map((entry) => ({ txid: entry.tx_hash, height: entry.height }));
+  };
+
   // Resolves to { txid }, or { code, message } if the network rejects the
   // transaction. Rejects if no server can be reached.
   const sendRawTransaction = async (hex) => {
@@ -75,7 +86,13 @@ const createProvider = (getClient) => {
     }
   };
 
-  return { getUtxos, getSpendableUtxos, getBalance, sendRawTransaction };
+  return {
+    getUtxos,
+    getSpendableUtxos,
+    getBalance,
+    getHistory,
+    sendRawTransaction,
+  };
 };
 
 let client = null;

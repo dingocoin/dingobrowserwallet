@@ -16,6 +16,14 @@ Delete any heading that has nothing under it.
 
 ## New
 
+- **Sweep an Electrum wallet.** Electrum's seeds aren't BIP39 seed phrases,
+  so restoring one here found no coins. The account menu (⋮) now has
+  *Sweep Electrum wallet*: enter the Electrum seed, and the wallet finds the
+  coins on all of its receiving and change addresses and sends them to the
+  current account in one transaction, after showing the amount and fee. The
+  seed is never saved. Standard Electrum seeds are supported, with or
+  without a seed extension; SegWit and two-factor seeds are not.
+
 ## Improved
 
 - The extension is a much smaller download: about 1.2 MB instead of 5.7 MB,

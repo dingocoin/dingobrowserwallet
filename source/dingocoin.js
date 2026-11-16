@@ -387,6 +387,113 @@ const selectConsolidation = ({ utxos }) => {
   return { inputs, fee, amount: total - fee, eligible: eligible.length };
 };
 
+// Plans a sweep: one transaction that sends the largest coins to the
+// destination as a single output, with no change.
+//
+// utxos: [{ txid, vout, amount: BigInt, ... }], typically from several
+// addresses. Other fields (such as the key that spends a coin) are kept on the
+// returned inputs. Coins worth no more than the fee their input adds are
+// skipped. At most MAX_CONSOLIDATION_INPUTS coins fit in one transaction, the
+// same one-output shape as a consolidation; sweeping again moves the rest.
+// Returns { inputs, fee, amount, total, eligible, tooSmall }, where amount is
+// what the destination receives, total is the value of every eligible coin,
+// eligible is how many coins could be swept in total and tooSmall is how many
+// were skipped as worth no more than their fee.
+// Throws CoinSelectionError("nothing") when there is nothing worth sweeping.
+const selectSweep = ({ utxos }) => {
+  const inputFee = (BigInt(P2PKH_INPUT_BYTES) * FEE_RATE + 999n) / 1000n;
+  const outpoint = (x) => `${x.txid}:${x.vout}`;
+  const eligible = utxos
+    .filter((utxo) => utxo.amount > inputFee)
+    .sort((a, b) =>
+      a.amount === b.amount
+        ? outpoint(a).localeCompare(outpoint(b))
+        : a.amount > b.amount
+        ? -1
+        : 1
+    );
+  if (eligible.length === 0) {
+    throw new CoinSelectionError("nothing", "There are no coins to sweep.");
+  }
+  const inputs = eligible.slice(0, MAX_CONSOLIDATION_INPUTS);
+  const inputTotal = inputs.reduce((sum, utxo) => sum + utxo.amount, 0n);
+  const fee = feeForBytes(
+    TX_OVERHEAD_BYTES + inputs.length * P2PKH_INPUT_BYTES + P2PKH_OUTPUT_BYTES
+  );
+  if (inputTotal - fee < DUST_THRESHOLD) {
+    throw new CoinSelectionError(
+      "nothing",
+      "These coins are worth less than the fee to sweep them."
+    );
+  }
+  return {
+    inputs,
+    fee,
+    amount: inputTotal - fee,
+    total: eligible.reduce((sum, utxo) => sum + utxo.amount, 0n),
+    eligible: eligible.length,
+    tooSmall: utxos.length - eligible.length,
+  };
+};
+
+// Output script paying a P2PKH or P2SH address.
+const outputScript = (address) => {
+  if (isP2pkh(address)) {
+    return Buffer.from("76a914" + getHash(address) + "88ac", "hex");
+  }
+  if (isP2sh(address)) {
+    return Buffer.from("a914" + getHash(address) + "87", "hex");
+  }
+  throw new Error("Unknown address type");
+};
+
+// Signs a transaction that spends coins held by different keys to one output.
+// inputs: [{ txid, vout, amount: BigInt, privKey }], each a P2PKH output of
+// privKey's compressed-key address. The destination receives the inputs'
+// total minus fee.
+const createSignedSweepTransaction = (inputs, destination, fee) => {
+  if (inputs.length === 0) {
+    throw new Error("Nothing to sweep");
+  }
+  const inputAmount = inputs.reduce((sum, input) => sum + input.amount, 0n);
+  const outputAmount = inputAmount - fee;
+  if (outputAmount < DUST_THRESHOLD) {
+    throw new Error("Vout amount falls below dust threshold");
+  }
+
+  const tx = new bitcoin.Transaction();
+  for (const input of inputs) {
+    tx.addInput(Buffer.from(input.txid, "hex").reverse(), input.vout);
+  }
+  tx.addOutput(outputScript(destination), outputAmount);
+
+  // Each input is signed against its own key's script; scriptSigs are only
+  // filled in afterwards, since they are not part of the signed hash.
+  const scriptSigs = inputs.map((input, index) => {
+    const signHash = tx.hashForSignature(
+      index,
+      outputScript(toAddress(input.privKey)),
+      bitcoin.Transaction.SIGHASH_ALL
+    );
+    const signatureDer = bitcoin.script.signature.encode(
+      Buffer.from(sign(signHash, input.privKey)),
+      bitcoin.Transaction.SIGHASH_ALL
+    );
+    const publicKey = Buffer.from(toPublicKey(input.privKey));
+    return Buffer.concat([
+      Buffer.from([signatureDer.length]),
+      signatureDer,
+      Buffer.from([publicKey.length]),
+      publicKey,
+    ]);
+  });
+  scriptSigs.forEach((scriptSig, index) => {
+    tx.ins[index].script = scriptSig;
+  });
+
+  return { tx: tx.toHex(), inputAmount, outputAmount };
+};
+
 const createSignedRawTransaction = (
   vins,
   vouts,
@@ -547,6 +654,132 @@ const hdPrivateKey = (entropy, index) => {
   return Buffer.from(key.privateKey);
 };
 
+// Electrum's own seed format, which is not BIP39. It is used only to sweep
+// coins out of an Electrum wallet; the extension never stores these seeds.
+// Electrum recognizes a seed by a version prefix of its HMAC, not by a word
+// list or checksum, and a standard wallet's keys are at m/0/<index>
+// (receiving) and m/1/<index> (change). Reference: electrum/mnemonic.py and
+// from_seed in electrum/keystore.py (github.com/spesmilo/electrum).
+const ELECTRUM_RECEIVING_CHAIN = 0;
+const ELECTRUM_CHANGE_CHAIN = 1;
+
+// Ranges in which Electrum drops the spaces between characters (CJK_INTERVALS).
+const ELECTRUM_CJK_RANGES = [
+  [0x4e00, 0x9fff], [0x3400, 0x4dbf], [0x20000, 0x2a6df], [0x2a700, 0x2b73f],
+  [0x2b740, 0x2b81f], [0xf900, 0xfaff], [0x2f800, 0x2fa1d], [0x3190, 0x319f],
+  [0x2e80, 0x2eff], [0x2f00, 0x2fdf], [0x31c0, 0x31ef], [0x2ff0, 0x2fff],
+  [0xe0100, 0xe01ef], [0x3100, 0x312f], [0x31a0, 0x31bf], [0xff00, 0xffef],
+  [0x3040, 0x309f], [0x30a0, 0x30ff], [0x31f0, 0x31ff], [0x1b000, 0x1b0ff],
+  [0xac00, 0xd7af], [0x1100, 0x11ff], [0xa960, 0xa97f], [0xd7b0, 0xd7ff],
+  [0x3130, 0x318f], [0xa4d0, 0xa4ff], [0x16f00, 0x16f9f], [0xa000, 0xa48f],
+  [0xa490, 0xa4cf],
+];
+
+const isCjk = (char) => {
+  if (char === undefined) {
+    return false;
+  }
+  const codePoint = char.codePointAt(0);
+  return ELECTRUM_CJK_RANGES.some(([low, high]) => low <= codePoint && codePoint <= high);
+};
+
+// Whether a mark has a nonzero canonical combining class, which is what
+// Python's unicodedata.combining reports and JavaScript has no API for.
+// Unicode normalization reorders adjacent marks by class unless one has class
+// 0, so a mark with class above 1 moves behind U+0334 (class 1) and a mark
+// with class below 232 moves before U+0315 (class 232). Class-0 marks such as
+// U+034F never move. The mark must already be decomposed (as everything is
+// after NFKD); a precomposed mark would be decomposed by the test itself.
+// Checked against Python 3's unicodedata for every code point both know.
+const hasCombiningClass = (mark) => {
+  const afterLow = mark + "\u0334";
+  const beforeHigh = "\u0315" + mark;
+  return (
+    afterLow.normalize("NFD") !== afterLow ||
+    beforeHigh.normalize("NFD") !== beforeHigh
+  );
+};
+
+// Python's str.split() whitespace, which differs from JavaScript's \s (no
+// U+FEFF; adds U+001C-U+001F and U+0085).
+const PYTHON_WHITESPACE =
+  // eslint-disable-next-line no-control-regex -- U+001C-U+001F are Python whitespace
+  /[\t\n\v\f\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/;
+
+// Electrum's normalize_text: NFKD, lowercase, accents (combining characters)
+// removed, whitespace collapsed, and no spaces between CJK characters.
+const normalizeElectrumText = (text) => {
+  const collapsed = Array.from(text.normalize("NFKD").toLowerCase())
+    .filter((char) => !(/\p{M}/u.test(char) && hasCombiningClass(char)))
+    .join("")
+    .split(PYTHON_WHITESPACE)
+    .filter((word) => word !== "")
+    .join(" ");
+  const chars = Array.from(collapsed);
+  return chars
+    .filter(
+      (char, i) => !(char === " " && isCjk(chars[i - 1]) && isCjk(chars[i + 1]))
+    )
+    .join("");
+};
+
+// Electrum seed type: "standard", "segwit", "2fa" or "2fa_segwit", or null if
+// the phrase is not an Electrum seed (Electrum's calc_seed_type). Seeds from
+// Electrum before 2.0 ("old" seeds) are not recognized.
+const electrumSeedType = (phrase) => {
+  const normalized = normalizeElectrumText(phrase);
+  if (normalized === "") {
+    return null;
+  }
+  const version = crypto
+    .createHmac("sha512", "Seed version")
+    .update(normalized, "utf8")
+    .digest("hex");
+  // Counted on the text as typed, as upstream does (CJK words lose their
+  // spaces in normalization).
+  const wordCount = phrase.split(PYTHON_WHITESPACE).filter((w) => w !== "").length;
+  if (version.startsWith("01")) {
+    return "standard";
+  }
+  if (version.startsWith("100")) {
+    return "segwit";
+  }
+  // Two-factor seeds share their prefix with an older derivation that Electrum
+  // tells apart by word count.
+  if (version.startsWith("101") && (wordCount === 12 || wordCount >= 20)) {
+    return "2fa";
+  }
+  if (version.startsWith("102")) {
+    return "2fa_segwit";
+  }
+  return null;
+};
+
+// BIP32 root of an Electrum wallet. The passphrase is what Electrum calls the
+// seed extension ("" if none was set).
+const electrumRootKey = (phrase, passphrase = "") => {
+  const seed = crypto.pbkdf2Sync(
+    Buffer.from(normalizeElectrumText(phrase), "utf8"),
+    Buffer.from("electrum" + normalizeElectrumText(passphrase), "utf8"),
+    2048,
+    64,
+    "sha512"
+  );
+  return HDKey.fromMasterSeed(seed);
+};
+
+// Private key of a standard Electrum wallet's address <index> on <chain>
+// (ELECTRUM_RECEIVING_CHAIN or ELECTRUM_CHANGE_CHAIN).
+const electrumPrivateKey = (rootKey, chain, index) => {
+  if (chain !== ELECTRUM_RECEIVING_CHAIN && chain !== ELECTRUM_CHANGE_CHAIN) {
+    throw new Error("Invalid Electrum chain");
+  }
+  if (!Number.isInteger(index) || index < 0 || index >= 0x80000000) {
+    throw new Error("Invalid address index");
+  }
+  return Buffer.from(rootKey.deriveChild(chain).deriveChild(index).privateKey);
+};
+
 // Password-based encryption for secrets stored by this version onwards:
 // PBKDF2-SHA512 (WebCrypto) and AES-256-GCM, so a wrong password or corrupted
 // data fails to decrypt instead of returning garbage. Parameters are stored
@@ -624,6 +857,7 @@ module.exports = {
   selectCoins,
   MAX_CONSOLIDATION_INPUTS,
   selectConsolidation,
+  selectSweep,
   sha256,
   ripemd160,
   toSatoshi,
@@ -641,6 +875,7 @@ module.exports = {
   encrypt,
   decrypt,
   createSignedRawTransaction,
+  createSignedSweepTransaction,
   HD_PATH,
   normalizeMnemonic,
   generateMnemonic,
@@ -648,6 +883,12 @@ module.exports = {
   mnemonicToEntropy,
   entropyToMnemonic,
   hdPrivateKey,
+  ELECTRUM_RECEIVING_CHAIN,
+  ELECTRUM_CHANGE_CHAIN,
+  normalizeElectrumText,
+  electrumSeedType,
+  electrumRootKey,
+  electrumPrivateKey,
   encryptVault,
   decryptVault,
 };
