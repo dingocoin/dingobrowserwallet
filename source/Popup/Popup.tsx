@@ -29,10 +29,13 @@ import {
   faUndoAlt,
   faExpandAlt,
   faCompressArrowsAlt,
+  faBroom,
 } from "@fortawesome/free-solid-svg-icons";
 import dingocoin from "../dingocoin";
 import keyring from "../accounts";
 import provider from "../provider";
+import sweep from "../sweep";
+import { ElectrumError } from "../electrum";
 import {
   BackupInstructions,
   PhraseGrid,
@@ -61,6 +64,9 @@ const satoshiToLocaleString = (x: any) => {
 
 // The same page runs in the toolbar popup and, via "Open in a tab", as popup.html?view=full.
 const FULL_PAGE = new URLSearchParams(window.location.search).get("view") === "full";
+// popup.html?view=full&sweep=electrum opens the Electrum sweep once the account loads.
+const SWEEP_ON_LOAD =
+  FULL_PAGE && new URLSearchParams(window.location.search).get("sweep") === "electrum";
 
 const Popup: React.FC = () => {
   const [accounts, setAccounts] = React.useState(null);
@@ -510,6 +516,188 @@ const Popup: React.FC = () => {
     }
   };
 
+  // Electrum sweep: send every coin of an Electrum wallet (Electrum's own seed
+  // format, not BIP39) to this address. The seed and its keys stay in memory
+  // only until the dialog closes.
+  const sweepPhraseRef = React.useRef(null);
+  const sweepOpenedOnLoadRef = React.useRef(false);
+  // Bumped when the dialog closes, so a scan still running for the old dialog
+  // can't put its keys or results into the next one.
+  const sweepSessionRef = React.useRef(0);
+  // Coins already swept in this dialog. The server may not have seen that
+  // transaction yet when "Sweep again" scans, and would list them again.
+  const sweepSpentRef = React.useRef(new Set<string>());
+  const [sweepShow, setSweepShow] = React.useState(false);
+  const [sweepPhrase, setSweepPhrase] = React.useState("");
+  const [sweepPassphrase, setSweepPassphrase] = React.useState("");
+  const [sweepPhraseError, setSweepPhraseError] = React.useState(null);
+  const [sweepScanning, setSweepScanning] = React.useState(false);
+  const [sweepFound, setSweepFound] = React.useState(null); // { usedAddresses, coins }
+  const [sweepPlan, setSweepPlan] = React.useState(null);
+  const [sweepError, setSweepError] = React.useState(null);
+  const [sweepBusy, setSweepBusy] = React.useState(false);
+  const [sweepResult, setSweepResult] = React.useState(null);
+  const resetSweepScan = () => {
+    setSweepFound(null);
+    setSweepPlan(null);
+    setSweepError(null);
+    setSweepResult(null);
+  };
+  const closeSweep = () => {
+    if (sweepBusy) {
+      return; // a broadcast is in flight; its result must be shown
+    }
+    sweepSessionRef.current++;
+    sweepSpentRef.current = new Set();
+    setSweepShow(false);
+    setSweepPhrase("");
+    setSweepPassphrase("");
+    setSweepPhraseError(null);
+    setSweepScanning(false);
+    resetSweepScan();
+  };
+  const openSweep = async () => {
+    // Pasting a seed means switching windows, which closes the toolbar popup.
+    if (!FULL_PAGE) {
+      await browser.tabs.create({
+        url: browser.runtime.getURL("popup.html?view=full&sweep=electrum"),
+      });
+      window.close();
+      return;
+    }
+    setSignShow(false);
+    closeSweep();
+    setSweepShow(true);
+  };
+  React.useEffect(() => {
+    if (SWEEP_ON_LOAD && activeAccount !== null && !sweepOpenedOnLoadRef.current) {
+      sweepOpenedOnLoadRef.current = true;
+      window.history.replaceState(null, "", "popup.html?view=full");
+      openSweep();
+    }
+  }, [activeAccount]);
+
+  // Why a phrase can't be swept, or null if it is a standard Electrum seed.
+  const sweepPhraseProblem = (phrase: string) => {
+    switch (dingocoin.electrumSeedType(phrase)) {
+      case "standard":
+        return null;
+      case "segwit":
+        return "This is an Electrum SegWit seed. Only standard Electrum seeds can be swept.";
+      case "2fa":
+      case "2fa_segwit":
+        return "This is an Electrum two-factor seed. Only standard Electrum seeds can be swept.";
+      default:
+        return dingocoin.mnemonicError(phrase) === null
+          ? "This is a BIP39 seed phrase, not an Electrum seed. To use it here, restore it from the wallet menu."
+          : "This is not an Electrum seed. Check the spelling and order of the words.";
+    }
+  };
+
+  const findSweepCoins = async (e?: any) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+
+    const problem = sweepPhraseProblem(sweepPhrase);
+    if (problem !== null) {
+      setSweepPhraseError(problem);
+      sweepPhraseRef.current?.focus();
+      return;
+    }
+    const session = sweepSessionRef.current;
+    resetSweepScan();
+    setSweepScanning(true);
+    let found;
+    let plan = null;
+    let error = null;
+    try {
+      found = await sweep.findElectrumCoins({
+        rootKey: dingocoin.electrumRootKey(sweepPhrase, sweepPassphrase),
+        provider,
+      });
+      found.coins = found.coins.filter(
+        (coin: any) => !sweepSpentRef.current.has(`${coin.txid}:${coin.vout}`)
+      );
+      if (found.usedAddresses > 0) {
+        try {
+          plan = dingocoin.selectSweep({ utxos: found.coins });
+        } catch (err: any) {
+          if (!(err instanceof dingocoin.CoinSelectionError)) {
+            throw err;
+          }
+          error = err.message;
+        }
+      }
+    } catch (err: any) {
+      found = null;
+      if (err instanceof ElectrumError) {
+        // E.g. an address with more coins than the server will list at once.
+        error = `The Dingocoin server refused the request: ${err.message}`;
+      } else if (err.message.startsWith("This wallet has too many")) {
+        error = err.message;
+      } else if (/Could not connect|timed out|closed/.test(err.message)) {
+        error = "Could not reach the Dingocoin network. Try again.";
+      } else {
+        error = `Could not finish looking for coins: ${err.message}`;
+      }
+    }
+    if (session !== sweepSessionRef.current) {
+      return; // the dialog was closed meanwhile
+    }
+    setSweepFound(found);
+    setSweepPlan(plan);
+    setSweepError(error);
+    setSweepScanning(false);
+  };
+
+  const doSweep = async (e: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setSweepBusy(true);
+    try {
+      // This tab may have been open a while: make sure the destination is
+      // still the active account and hasn't been deleted in another window.
+      const stored = await browser.storage.sync.get(["activeAccount", "accounts"]);
+      const stillActive =
+        stored.activeAccount?.address === activeAccount.address &&
+        (stored.accounts || []).some((x: any) => x.address === activeAccount.address);
+      if (!stillActive) {
+        setSweepResult({
+          code: "account",
+          message:
+            "The active account changed in another window. Reload this tab and sweep again.",
+        });
+        return;
+      }
+      let signedTx;
+      try {
+        signedTx = dingocoin.createSignedSweepTransaction(
+          sweepPlan.inputs,
+          activeAccount.address,
+          sweepPlan.fee
+        );
+      } catch (err: any) {
+        setSweepResult({ code: "signing", message: err.message });
+        return;
+      }
+      try {
+        const result = await provider.sendRawTransaction(signedTx.tx);
+        if (typeof result.txid !== "undefined") {
+          for (const input of sweepPlan.inputs) {
+            sweepSpentRef.current.add(`${input.txid}:${input.vout}`);
+          }
+        }
+        setSweepResult(result);
+      } catch (err: any) {
+        setSweepResult({ code: "network", message: err.message });
+      }
+      await refresh();
+    } finally {
+      setSweepBusy(false);
+    }
+  };
+
   const doSend = async (e: any) => {
     e.preventDefault();
     e.stopPropagation();
@@ -677,6 +865,10 @@ const Popup: React.FC = () => {
                       icon={faCompressArrowsAlt}
                     />
                     Consolidate coins
+                  </Dropdown.Item>
+                  <Dropdown.Item onClick={openSweep}>
+                    <FontAwesomeIcon className="icon" icon={faBroom} />
+                    Sweep Electrum wallet
                   </Dropdown.Item>
                   <Dropdown.Item
                     style={{ color: "red" }}
@@ -1475,6 +1667,211 @@ const Popup: React.FC = () => {
                 variant="primary"
                 style={{ width: "100%" }}
                 onClick={() => setConsolidateShow(false)}
+              >
+                Close
+              </Button>
+            </Form>
+          )}
+        </Modal.Body>
+      </Modal>
+
+      <Modal
+        size="lg"
+        aria-labelledby="contained-modal-title-vcenter"
+        centered
+        show={sweepShow}
+        onHide={closeSweep}
+        onEntered={() => sweepPhraseRef.current?.focus()}
+        backdrop={sweepBusy ? "static" : true}
+        keyboard={!sweepBusy}
+      >
+        <Modal.Header closeButton={!sweepBusy}>
+          <Modal.Title id="contained-modal-title-vcenter">
+            Sweep Electrum wallet
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {sweepFound === null && sweepError === null && !sweepScanning && (
+            <Form noValidate onSubmit={findSweepCoins}>
+              <p className="modal-note">
+                Moves every coin from an Electrum wallet to this account, in one
+                transaction. Enter the Electrum wallet&apos;s seed. It is not
+                saved, and the Electrum wallet keeps working, but it will be
+                empty.
+              </p>
+              <Form.Group className="mb-3">
+                <Form.Control
+                  as="textarea"
+                  value={sweepPhrase}
+                  onChange={(e) => {
+                    setSweepPhrase(e.target.value);
+                    setSweepPhraseError(null);
+                  }}
+                  placeholder="Electrum seed"
+                  ref={sweepPhraseRef as any}
+                  rows={3}
+                  isInvalid={sweepPhraseError !== null}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {sweepPhraseError && (
+                  <Form.Label className="input-error">
+                    {sweepPhraseError}
+                  </Form.Label>
+                )}
+                <Form.Control
+                  type="password"
+                  className="mt-2"
+                  value={sweepPassphrase}
+                  onChange={(e) => setSweepPassphrase(e.target.value)}
+                  placeholder="Seed extension (only if you set one)"
+                  autoComplete="off"
+                />
+              </Form.Group>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                type="submit"
+                disabled={sweepPhrase.trim().length === 0}
+              >
+                Find coins
+              </Button>
+            </Form>
+          )}
+          {sweepScanning && (
+            <p className="modal-note">Looking for coins in this wallet…</p>
+          )}
+          {!sweepScanning && sweepError !== null && sweepPlan === null && (
+            <Form>
+              <p className="modal-note">
+                {sweepFound !== null &&
+                  `Found ${sweepFound.usedAddresses} used addresses. `}
+                {sweepError}
+              </p>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                onClick={resetSweepScan}
+              >
+                Back
+              </Button>
+            </Form>
+          )}
+          {!sweepScanning &&
+            sweepFound !== null &&
+            sweepFound.usedAddresses === 0 && (
+              <Form>
+                <p className="modal-note">
+                  No transactions were found for this seed. Check the words, and
+                  the seed extension if the wallet has one.
+                </p>
+                <Button
+                  variant="primary"
+                  style={{ width: "100%" }}
+                  onClick={resetSweepScan}
+                >
+                  Back
+                </Button>
+              </Form>
+            )}
+          {!sweepScanning && sweepPlan !== null && sweepResult === null && (
+            <Form noValidate onSubmit={doSweep}>
+              <Form.Group className="mb-3">
+                <Form.Label>
+                  <b>Found: </b>
+                  {satoshiToLocaleString(sweepPlan.total)} in{" "}
+                  {sweepPlan.eligible} coins on {sweepFound.usedAddresses}{" "}
+                  addresses
+                </Form.Label>
+                <br />
+                <Form.Label>
+                  <b>Fee: </b>
+                  {satoshiToLocaleString(sweepPlan.fee)}
+                </Form.Label>
+                <br />
+                <Form.Label>
+                  <b>You receive: </b>
+                  {satoshiToLocaleString(sweepPlan.amount)}
+                </Form.Label>
+                <br />
+                <Form.Label>
+                  <b>To: </b>
+                  {activeAccount.address}
+                </Form.Label>
+                {sweepPlan.tooSmall > 0 && (
+                  <p className="modal-note">
+                    {sweepPlan.tooSmall} coins are worth less than the fee to
+                    spend them and are left behind.
+                  </p>
+                )}
+                {sweepPlan.eligible > sweepPlan.inputs.length && (
+                  <p className="modal-note">
+                    One transaction can hold{" "}
+                    {dingocoin.MAX_CONSOLIDATION_INPUTS} coins, so this sweeps
+                    the largest {sweepPlan.inputs.length}. Sweep again right
+                    after to move the other{" "}
+                    {sweepPlan.eligible - sweepPlan.inputs.length}.
+                  </p>
+                )}
+              </Form.Group>
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                type="submit"
+                disabled={sweepBusy}
+              >
+                {sweepBusy ? "Sweeping…" : "Sweep"}
+              </Button>
+            </Form>
+          )}
+          {!sweepScanning && sweepResult !== null && (
+            <Form>
+              <Form.Group className="mb-3">
+                {typeof sweepResult.txid !== "undefined" ? (
+                  <>
+                    <Form.Label>Sweep sent. TXID:</Form.Label>
+                    <Form.Control
+                      readOnly
+                      as="textarea"
+                      value={sweepResult.txid}
+                      rows={3}
+                    />
+                    <a
+                      href={`https://explorer.dingocoin.com/tx/${sweepResult.txid}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View on explorer
+                    </a>
+                  </>
+                ) : (
+                  <Form.Label>
+                    Error sending transaction:
+                    <br />
+                    <b>
+                      <span style={{ color: "red" }}>
+                        ({sweepResult.code}) {sweepResult.message}
+                      </span>
+                    </b>
+                  </Form.Label>
+                )}
+              </Form.Group>
+              {typeof sweepResult.txid !== "undefined" &&
+                sweepPlan !== null &&
+                sweepPlan.eligible > sweepPlan.inputs.length && (
+                  <Button
+                    variant="outline-primary"
+                    style={{ width: "100%" }}
+                    className="mb-2"
+                    onClick={() => findSweepCoins()}
+                  >
+                    Sweep again
+                  </Button>
+                )}
+              <Button
+                variant="primary"
+                style={{ width: "100%" }}
+                onClick={closeSweep}
               >
                 Close
               </Button>
