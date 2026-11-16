@@ -18,4 +18,8 @@ Delete any heading that has nothing under it.
 
 ## Improved
 
+- The extension is a much smaller download: about 1.2 MB instead of 5.7 MB,
+  and 3.5 MB installed instead of 18.6 MB. Builds no longer include debugging
+  data that only developers use.
+
 ## Fixed
