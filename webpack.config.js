@@ -198,8 +198,12 @@ module.exports = (env = {}) => {
       // Plugin to not generate js bundle for manifest entry
       new WextManifestWebpackPlugin(),
       ...(testBuild ? [new TestBuildManifestPlugin()] : []),
-      // Generate sourcemaps
-      new webpack.SourceMapDevToolPlugin({ filename: false }),
+      // Inline source maps for development builds (npm run dev:*) only. In
+      // production builds they were 4.5 MB of the 5.2 MB popup bundle, which
+      // put it at the 5 MB limit above which addons-linter can't parse a file.
+      ...(nodeEnv === "development"
+        ? [new webpack.SourceMapDevToolPlugin({ filename: false })]
+        : []),
       new ForkTsCheckerWebpackPlugin(),
       // environmental variables
       new webpack.EnvironmentPlugin(["TARGET_BROWSER"]),
